@@ -2,6 +2,14 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+    configurations.all {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'com.github.polarofficial' && details.requested.name == 'polar-ble-sdk') {
+                details.useVersion '6.16.1'
+            }
+        }
     }
 }
 

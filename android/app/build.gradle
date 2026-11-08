@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace "com.polarsense.extension"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -21,7 +21,7 @@ android {
     defaultConfig {
         applicationId = "com.polarsense.extension"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -31,6 +31,14 @@ android {
             signingConfig = signingConfigs.debug
             minifyEnabled = false
             shrinkResources = false
+        }
+    }
+}
+
+configurations.all {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'com.github.polarofficial' && details.requested.name == 'polar-ble-sdk') {
+            details.useVersion '6.16.1'
         }
     }
 }
