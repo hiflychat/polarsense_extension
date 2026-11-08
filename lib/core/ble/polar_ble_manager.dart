@@ -102,7 +102,8 @@ class PolarBleManager {
 
     _featureReadySub = _polar.sdkFeatureReady.listen((event) {
       debugPrint('[BLE] SDK Feature ready: ${event.feature} on device: ${event.identifier}');
-      if (event.feature == PolarBleSdkFeature.onlineStreaming) {
+      final featureStr = event.feature.toString();
+      if (featureStr.contains('onlineStreaming')) {
         _startStreaming(event.identifier);
       }
     });
