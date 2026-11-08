@@ -16,6 +16,13 @@ class DeviceScreen extends ConsumerStatefulWidget {
 
 class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   bool _mockWalking = false;
+  Future<bool>? _permissionsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _permissionsFuture = PolarBleManager.hasBlePermissions();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,18 +33,19 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       appBar: AppBar(
         title: Text(strings.sensorTitle),
         actions: [
-          StreamBuilder<BleConnectionState>(
-            stream: bleManager.stateStream,
-            initialData: bleManager.connectionState,
+          StreamBuilder<int>(
+            stream: bleManager.hrStream,
+            initialData: bleManager.currentHr,
             builder: (context, snapshot) {
-              final isConnected = snapshot.data == BleConnectionState.connected ||
-                  snapshot.data == BleConnectionState.streaming;
+              final hr = snapshot.data ?? bleManager.currentHr;
+              final isConnected = bleManager.connectionState == BleConnectionState.connected ||
+                  bleManager.connectionState == BleConnectionState.streaming;
 
               return Padding(
                 padding: const EdgeInsets.only(right: 16),
                 child: Center(
                   child: PulseIndicator(
-                    hr: bleManager.currentHr,
+                    hr: hr,
                     isConnected: isConnected,
                   ),
                 ),
@@ -59,7 +67,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             children: [
               // 0. Permission Warning Banner (if permissions not granted)
               FutureBuilder<bool>(
-                future: PolarBleManager.hasBlePermissions(),
+                future: _permissionsFuture,
                 builder: (context, permSnapshot) {
                   if (permSnapshot.hasData && permSnapshot.data == false) {
                     return Container(
@@ -93,7 +101,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                             ),
                             onPressed: () async {
                               await PolarBleManager.requestBlePermissions();
-                              setState(() {});
+                              setState(() {
+                                _permissionsFuture = PolarBleManager.hasBlePermissions();
+                              });
                             },
                             child: Text(strings.grantPermission),
                           ),
@@ -304,16 +314,27 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             const SizedBox(height: 16),
             Row(
               children: [
-                // Battery
+                // Battery & Charging status
                 Expanded(
                   child: StreamBuilder<int>(
                     stream: bleManager.batteryStream,
-                    initialData: bleManager.batteryLevel,
+                    initialData: bleManager.effectiveBatteryLevel,
                     builder: (context, snapshot) {
-                      final battery = snapshot.data ?? bleManager.batteryLevel;
+                      final battery = snapshot.data ?? bleManager.effectiveBatteryLevel;
+                      final isReal = bleManager.batteryLevel != null;
+                      final charging = bleManager.isCharging;
+                      String batText = '--';
+                      if (battery != null) {
+                        batText = '$battery%';
+                        if (charging) {
+                          batText += ' ⚡';
+                        } else if (!isReal) {
+                          batText += ' (${strings.cachedStatus})';
+                        }
+                      }
                       return _buildMiniMetric(
-                        Icons.battery_charging_full,
-                        battery != null ? '$battery%' : '--',
+                        charging ? Icons.battery_charging_full : Icons.battery_std,
+                        batText,
                         strings.sensorBattery,
                         battery != null && battery > 20 ? AppTheme.recoveryGood : AppTheme.polarRed,
                       );
@@ -340,36 +361,34 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               ],
             ),
             const SizedBox(height: 14),
-            // ACC Status
-            StreamBuilder(
-              stream: bleManager.accStream,
-              builder: (context, snapshot) {
-                final hasData = snapshot.hasData;
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.darkBackground,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppTheme.darkBorder),
+            // ACC Status (Checks streaming state rather than listening at 52Hz, preventing UI thread starvation)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.darkBackground,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.darkBorder),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.sensors,
+                    size: 16,
+                    color: (bleManager.connectionState == BleConnectionState.streaming)
+                        ? AppTheme.polarCyan
+                        : Colors.white24,
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.sensors,
-                        size: 16,
-                        color: hasData ? AppTheme.polarCyan : Colors.white24,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          hasData ? strings.accActive : strings.accWaiting,
-                          style: const TextStyle(fontSize: 12, color: Colors.white70),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      (bleManager.connectionState == BleConnectionState.streaming)
+                          ? strings.accActive
+                          : strings.accWaiting,
+                      style: const TextStyle(fontSize: 12, color: Colors.white70),
+                    ),
                   ),
-                );
-              },
+                ],
+              ),
             ),
           ],
         ),

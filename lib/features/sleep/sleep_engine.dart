@@ -85,8 +85,20 @@ class SleepEngine {
     _epochVmuBuffer.clear();
     _epochStartTime = DateTime.now();
 
-    _accSub = accStream.listen(_processAccData);
-    _ppiSub = ppiStream.listen(_processPpiData);
+    _accSub = accStream.listen(
+      _processAccData,
+      onError: (err) {
+        debugPrint('[SleepEngine] ACC stream error: $err');
+      },
+      cancelOnError: false,
+    );
+    _ppiSub = ppiStream.listen(
+      _processPpiData,
+      onError: (err) {
+        debugPrint('[SleepEngine] PPI stream error: $err');
+      },
+      cancelOnError: false,
+    );
 
     _statusTicker?.cancel();
     _statusTicker = Timer.periodic(const Duration(seconds: 1), (_) {

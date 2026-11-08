@@ -82,6 +82,8 @@ class AppStrings {
   String get discoveredDevices => isZh ? '发现的 Polar 设备' : 'Discovered Polar Devices';
   String get realtimeTelemetry => isZh ? '实时传感器遥测' : 'Real-Time Sensor Telemetry';
   String get sensorBattery => isZh ? '传感器电量' : 'Sensor Battery';
+  String get cachedStatus => isZh ? '历史' : 'Cached';
+  String get chargingStatus => isZh ? '充电中' : 'Charging';
   String get opticalHr => isZh ? '光学实时心率' : 'Optical HR';
   String get accStreamTitle => isZh ? '26 Hz 运动姿态流' : 'ACC Stream 26 Hz';
   String get accActive => isZh ? '26 Hz 姿态同步中 (手臂运动检测)' : 'Active (arm posture synced)';

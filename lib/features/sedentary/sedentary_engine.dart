@@ -101,7 +101,13 @@ class SedentaryEngine {
     _windowStartTime = DateTime.now();
     _vmuWindowBuffer.clear();
 
-    _accSubscription = accStream.listen(_processAccData);
+    _accSubscription = accStream.listen(
+      _processAccData,
+      onError: (err) {
+        debugPrint('[SedentaryEngine] ACC stream error: $err');
+      },
+      cancelOnError: false,
+    );
 
     // Continuous 1-second ticker for real-time live seconds progression
     _ticker?.cancel();
