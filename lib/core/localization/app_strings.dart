@@ -58,9 +58,14 @@ class AppStrings {
   String get pairedDevice => isZh ? '已配对设备' : 'Paired Device';
   String get noDeviceConnected => isZh ? '未连接手环设备' : 'No Device Connected';
   String get status => isZh ? '连接状态' : 'Status';
+  String get connected => isZh ? '已连接' : 'Connected';
+  String get streaming => isZh ? '数据传输中' : 'Streaming';
+  String get connecting => isZh ? '正在连接...' : 'Connecting...';
+  String get disconnected => isZh ? '未连接' : 'Disconnected';
   String get autoConnecting => isZh ? '正在自动连接已配对设备...' : 'Auto-connecting to saved device...';
   String get scanBle => isZh ? '扫描蓝牙' : 'Scan BLE';
   String get scanning => isZh ? '扫描中...' : 'Scanning...';
+  String get scanningBtn => isZh ? '正在扫描...' : 'Scanning...';
   String get disconnect => isZh ? '断开连接' : 'Disconnect';
   String get connect => isZh ? '连接' : 'Connect';
   String get forgetDevice => isZh ? '解除配对' : 'Forget Device';
