@@ -4,7 +4,7 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.2.0 <4.0.0"
+  sdk: ">=3.0.0 <4.0.0"
   flutter: ">=3.16.0"
 
 dependencies:
@@ -12,7 +12,7 @@ dependencies:
     sdk: flutter
 
   # Polar Hardware SDK
-  polar: ^7.11.0
+  polar: ">=7.0.0 <8.0.0"
 
   # Background execution
   flutter_foreground_task: ^8.0.0
