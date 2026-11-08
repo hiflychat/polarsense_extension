@@ -125,6 +125,7 @@ class SleepSession {
   double get remPercentage => durationMinutes > 0 ? (remMinutes / durationMinutes) * 100 : 0.0;
   double get lightPercentage => durationMinutes > 0 ? (lightMinutes / durationMinutes) * 100 : 0.0;
   double get wakePercentage => durationMinutes > 0 ? (wakeMinutes / durationMinutes) * 100 : 0.0;
+  String get durationFormatted => '${durationMinutes ~/ 60}h ${durationMinutes % 60}m';
 
   Map<String, dynamic> toMap() {
     return {

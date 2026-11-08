@@ -125,6 +125,7 @@ class AppStrings {
   String get stopOfflineRecord => isZh ? '停止手环离线录制' : 'Stop Sensor Recording';
   String get offlineRecordingActive => isZh ? '手环正在独立录制中 (绿灯模式)' : 'Sensor is recording internally (Green LED)';
   String get offlineRecordingIdle => isZh ? '手环未在录制' : 'Sensor recording is idle';
+  String get recordingStatus => isZh ? '正在独立录制' : 'Recording';
   String get readingDeviceExercises => isZh ? '正在读取手环存储列表...' : 'Checking Sense storage...';
   String get fetchingExerciseSamples => isZh ? '正在高速下载睡眠采样数据...' : 'Downloading sleep samples...';
   String get analyzingSleepEpochs => isZh ? '正在进行 30秒 睡眠分期与 HRV 计算...' : 'Analyzing 30s sleep stages & HRV...';

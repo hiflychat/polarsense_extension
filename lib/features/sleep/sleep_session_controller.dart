@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/ble/polar_ble_manager.dart';
 import '../../core/database/health_database.dart';
 import '../../core/database/models/sleep_record.dart';
 import '../sedentary/sedentary_notifier.dart';
@@ -150,11 +151,10 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
 
   /// Generates a complete 7.5-hour mock offline sleep session for instant testing & hypnogram inspection
   Future<SleepSession?> generateMockOfflineSleep() async {
-    final bleManager = _ref.read(polarBleManagerProvider);
     state = state.copyWith(isLoading: true);
 
     try {
-      final mockData = bleManager.generateMockSleepExerciseData();
+      final mockData = PolarBleManager.generateMockSleepExerciseData();
       final startTime = DateTime.now().subtract(const Duration(hours: 7, minutes: 45));
       final session = await _sleepEngine.processOfflineExercise(
         startTime: startTime,
