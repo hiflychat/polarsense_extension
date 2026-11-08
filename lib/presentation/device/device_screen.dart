@@ -180,14 +180,14 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 Expanded(
                   child: StreamBuilder<int>(
                     stream: bleManager.batteryStream,
-                    initialData: 95,
+                    initialData: bleManager.batteryLevel,
                     builder: (context, snapshot) {
-                      final battery = snapshot.data ?? 0;
+                      final battery = snapshot.data ?? bleManager.batteryLevel;
                       return _buildMiniMetric(
                         Icons.battery_charging_full,
-                        '$battery%',
+                        battery != null ? '$battery%' : '--',
                         'Sensor Battery',
-                        battery > 20 ? AppTheme.recoveryGood : AppTheme.polarRed,
+                        battery != null && battery > 20 ? AppTheme.recoveryGood : AppTheme.polarRed,
                       );
                     },
                   ),
@@ -197,8 +197,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 Expanded(
                   child: StreamBuilder<int>(
                     stream: bleManager.hrStream,
+                    initialData: bleManager.currentHr,
                     builder: (context, snapshot) {
-                      final hr = snapshot.data ?? 0;
+                      final hr = snapshot.data ?? bleManager.currentHr ?? 0;
                       return _buildMiniMetric(
                         Icons.favorite,
                         hr > 0 ? '$hr BPM' : '--',

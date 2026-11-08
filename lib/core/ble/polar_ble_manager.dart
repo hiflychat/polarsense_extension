@@ -60,9 +60,16 @@ class PolarBleManager {
 
   final Map<String, DiscoveredDevice> _discoveredDevices = {};
 
+  int? _batteryLevel;
+  int? get batteryLevel => _batteryLevel;
+
+  int? _currentHr;
+  int? get currentHr => _currentHr;
+
   StreamSubscription? _deviceConnectedSub;
   StreamSubscription? _deviceDisconnectedSub;
   StreamSubscription? _batterySub;
+  StreamSubscription? _featuresReadinessSub;
   StreamSubscription? _featureReadySub;
   StreamSubscription? _accSub;
   StreamSubscription? _ppiSub;
@@ -85,12 +92,16 @@ class PolarBleManager {
       _connectedDeviceId = info.deviceId;
       _updateState(BleConnectionState.connected);
       _reconnectAttempts = 0;
+      // Start streaming immediately on connection
+      _startSensorStreams(info.deviceId);
     });
 
     _deviceDisconnectedSub = _polar.deviceDisconnected.listen((event) {
       debugPrint('[BLE] Device disconnected: ${event.info.deviceId}');
       _updateState(BleConnectionState.disconnected);
       _connectedDeviceId = null;
+      _batteryLevel = null;
+      _currentHr = null;
       _cancelStreams();
 
       if (!_intentionalDisconnect) {
@@ -99,15 +110,19 @@ class PolarBleManager {
     });
 
     _batterySub = _polar.batteryLevel.listen((event) {
+      debugPrint('[BLE] Real battery level received: ${event.level}%');
+      _batteryLevel = event.level;
       _batteryStreamController.add(event.level);
     });
 
+    _featuresReadinessSub = _polar.sdkFeaturesReadiness.listen((event) {
+      debugPrint('[BLE] SDK Features readiness: ${event.ready} for ${event.identifier}');
+      _startSensorStreams(event.identifier);
+    });
+
     _featureReadySub = _polar.sdkFeatureReady.listen((event) {
-      debugPrint('[BLE] SDK Feature ready: ${event.feature} on device: ${event.identifier}');
-      final featureStr = event.feature.toString();
-      if (featureStr.contains('onlineStreaming')) {
-        _startStreaming(event.identifier);
-      }
+      debugPrint('[BLE] SDK Feature ready: ${event.feature} on ${event.identifier}');
+      _startSensorStreams(event.identifier);
     });
   }
 
@@ -122,11 +137,15 @@ class PolarBleManager {
     if (enable) {
       disconnect();
       _connectedDeviceId = 'POLAR-MOCK-7A99';
+      _batteryLevel = 90;
+      _currentHr = 72;
       _updateState(BleConnectionState.connected);
       _startMockStreaming();
     } else {
       _stopMockStreaming();
       _connectedDeviceId = null;
+      _batteryLevel = null;
+      _currentHr = null;
       _updateState(BleConnectionState.disconnected);
     }
   }
@@ -191,6 +210,8 @@ class PolarBleManager {
 
     if (_isMockMode) {
       _connectedDeviceId = deviceId;
+      _batteryLevel = 90;
+      _currentHr = 72;
       _updateState(BleConnectionState.connected);
       _startMockStreaming();
       return;
@@ -198,6 +219,13 @@ class PolarBleManager {
 
     try {
       await _polar.connectToDevice(deviceId);
+      // Fallback check: also start streaming after a short delay
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (_connectionState == BleConnectionState.connected ||
+            _connectionState == BleConnectionState.streaming) {
+          _startSensorStreams(deviceId);
+        }
+      });
     } catch (e) {
       debugPrint('[BLE] Connection error: $e');
       _updateState(BleConnectionState.disconnected);
@@ -211,6 +239,8 @@ class PolarBleManager {
     if (_isMockMode) {
       _stopMockStreaming();
       _connectedDeviceId = null;
+      _batteryLevel = null;
+      _currentHr = null;
       _updateState(BleConnectionState.disconnected);
       return;
     }
@@ -223,6 +253,8 @@ class PolarBleManager {
       }
     }
     _connectedDeviceId = null;
+    _batteryLevel = null;
+    _currentHr = null;
     _updateState(BleConnectionState.disconnected);
   }
 
@@ -244,44 +276,84 @@ class PolarBleManager {
     });
   }
 
-  Future<void> _startStreaming(String deviceId) async {
+  Future<void> _startSensorStreams(String deviceId) async {
+    _updateState(BleConnectionState.streaming);
+
+    // 1. Heart Rate Stream (Optical HR & standard BLE HR)
+    if (_hrSub == null) {
+      try {
+        debugPrint('[BLE] Starting HR stream for $deviceId');
+        _hrSub = _polar.startHrStreaming(deviceId).listen(
+          (hrData) {
+            for (final sample in hrData.samples) {
+              if (sample.hr > 0) {
+                _currentHr = sample.hr;
+                _hrStreamController.add(sample.hr);
+                debugPrint('[BLE] Live HR: ${sample.hr} BPM');
+              }
+            }
+          },
+          onError: (err) => debugPrint('[BLE] HR stream error: $err'),
+        );
+      } catch (e) {
+        debugPrint('[BLE] Error starting HR stream: $e');
+      }
+    }
+
+    // 2. Optical Heart Rate PPI Stream (Pulse-to-Pulse intervals with instantaneous HR)
+    if (_ppiSub == null) {
+      try {
+        debugPrint('[BLE] Starting PPI stream for $deviceId');
+        _ppiSub = _polar.startPpiStreaming(deviceId).listen(
+          (ppiData) {
+            _ppiStreamController.add(ppiData);
+            for (final sample in ppiData.samples) {
+              if (sample.hr > 0) {
+                _currentHr = sample.hr;
+                _hrStreamController.add(sample.hr);
+              }
+            }
+          },
+          onError: (err) => debugPrint('[BLE] PPI stream error: $err'),
+        );
+      } catch (e) {
+        debugPrint('[BLE] Error starting PPI stream: $e');
+      }
+    }
+
+    // 3. Accelerometer Stream (26 Hz)
+    if (_accSub == null) {
+      try {
+        debugPrint('[BLE] Starting ACC stream for $deviceId');
+        _accSub = _polar.startAccStreaming(
+          deviceId,
+          settings: PolarSensorSetting({
+            PolarSettingType.sampleRate: PolarConstants.accSampleRate,
+            PolarSettingType.range: PolarConstants.accRange,
+          }),
+        ).listen(
+          (data) => _accStreamController.add(data),
+          onError: (err) {
+            debugPrint('[BLE] ACC explicit settings error: $err, falling back to default stream');
+            _startDefaultAccStream(deviceId);
+          },
+        );
+      } catch (e) {
+        debugPrint('[BLE] Error starting ACC stream: $e, falling back to default stream');
+        _startDefaultAccStream(deviceId);
+      }
+    }
+  }
+
+  void _startDefaultAccStream(String deviceId) {
     try {
-      _updateState(BleConnectionState.streaming);
-
-      // 1. Accelerometer stream at 26 Hz
       _accSub?.cancel();
-      _accSub = _polar.startAccStreaming(
-        deviceId,
-        settings: PolarSensorSetting({
-          PolarSettingType.sampleRate: PolarConstants.accSampleRate,
-          PolarSettingType.range: PolarConstants.accRange,
-        }),
-      ).listen(
+      _accSub = _polar.startAccStreaming(deviceId).listen(
         (data) => _accStreamController.add(data),
-        onError: (err) => debugPrint('[BLE] ACC stream error: $err'),
+        onError: (err) => debugPrint('[BLE] ACC default stream error: $err'),
       );
-
-      // 2. Optical Heart Rate PPI stream
-      _ppiSub?.cancel();
-      _ppiSub = _polar.startPpiStreaming(deviceId).listen(
-        (data) => _ppiStreamController.add(data),
-        onError: (err) => debugPrint('[BLE] PPI stream error: $err'),
-      );
-
-      // 3. Heart Rate stream
-      _hrSub?.cancel();
-      _hrSub = _polar.startHrStreaming(deviceId).listen(
-        (hrData) {
-          if (hrData.samples.isNotEmpty) {
-            _hrStreamController.add(hrData.samples.first.hr);
-          }
-        },
-        onError: (err) => debugPrint('[BLE] HR stream error: $err'),
-      );
-
-      debugPrint('[BLE] All sensor streams started successfully');
     } catch (e) {
-      debugPrint('[BLE] Error starting streams: $e');
+      debugPrint('[BLE] Error starting default ACC stream: $e');
     }
   }
 
@@ -298,23 +370,20 @@ class PolarBleManager {
     _updateState(BleConnectionState.streaming);
     final random = Random();
 
-    // 26 Hz ACC stream generation (every ~38ms, sends batches or per-sample)
+    // 26 Hz ACC stream generation
     _mockAccTimer?.cancel();
     _mockAccTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       final samples = <PolarAccSample>[];
       final now = DateTime.now();
 
-      // Produce 3 samples per 100ms (~26Hz)
       for (int i = 0; i < 3; i++) {
         int x, y, z;
         if (_mockIsWalking) {
-          // Walking pattern: dynamic swings ±250mg around 1g
           final angle = (timer.tick * 3 + i) * 0.4;
           x = (sin(angle) * 350).round();
           y = (1000 + cos(angle) * 300).round();
           z = (sin(angle * 0.5) * 200).round();
         } else {
-          // Sedentary pattern: steady static gravity with tiny noise
           x = (random.nextDouble() * 20 - 10).round();
           y = (random.nextDouble() * 20 - 10).round();
           z = (1000 + random.nextDouble() * 20 - 10).round();
@@ -329,26 +398,30 @@ class PolarBleManager {
       _accStreamController.add(PolarAccData(samples: samples));
     });
 
-    // PPI Beat-to-Beat generator (~1 beat per second)
+    // PPI & HR stream generation
     _mockPpiTimer?.cancel();
-    _mockPpiTimer = Timer.periodic(const Duration(milliseconds: 850), (timer) {
-      final ppiMs = 800 + random.nextInt(120);
+    _mockPpiTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final ppiMs = 800 + (sin(timer.tick * 0.2) * 50).round() + (random.nextInt(20) - 10);
       final sample = PolarPpiSample(
         timeStamp: DateTime.now().millisecondsSinceEpoch,
         ppi: ppiMs,
-        blockerBit: false,
-        errorEstimate: 0,
+        errorEstimate: 5,
         hr: (60000 / ppiMs).round(),
+        blockerBit: false,
         skinContactStatus: true,
         skinContactSupported: true,
       );
       _ppiStreamController.add(PolarPpiData(samples: [sample]));
-      _hrStreamController.add((60000 / ppiMs).round());
+      final hr = (60000 / ppiMs).round();
+      _currentHr = hr;
+      _hrStreamController.add(hr);
     });
 
     _mockHrTimer?.cancel();
     _mockHrTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      _batteryStreamController.add(88 + random.nextInt(10));
+      final b = 88 + random.nextInt(10);
+      _batteryLevel = b;
+      _batteryStreamController.add(b);
     });
   }
 
@@ -367,6 +440,7 @@ class PolarBleManager {
     _deviceConnectedSub?.cancel();
     _deviceDisconnectedSub?.cancel();
     _batterySub?.cancel();
+    _featuresReadinessSub?.cancel();
     _featureReadySub?.cancel();
     _stateController.close();
     _discoveredDevicesController.close();

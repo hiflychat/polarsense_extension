@@ -30,12 +30,13 @@ class HomeScreen extends ConsumerWidget {
         actions: [
           StreamBuilder<int>(
             stream: bleManager.hrStream,
+            initialData: bleManager.currentHr,
             builder: (context, snapshot) {
               return Padding(
                 padding: const EdgeInsets.only(right: 16),
                 child: Center(
                   child: PulseIndicator(
-                    hr: snapshot.data,
+                    hr: snapshot.data ?? bleManager.currentHr,
                     isConnected: isBleConnected,
                   ),
                 ),
