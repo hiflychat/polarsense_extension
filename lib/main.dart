@@ -18,6 +18,12 @@ void main() async {
     debugPrint('[FlutterError] ${details.exceptionAsString()}');
   };
 
+  // Catch any unhandled platform asynchronous errors
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('[PlatformDispatcherError] $error\n$stack');
+    return true;
+  };
+
   // Set system UI overlay style
   try {
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(

@@ -55,28 +55,36 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
   }
 
   Future<void> loadSessions() async {
-    state = state.copyWith(isLoading: true);
-    final sessions = await _database.getSleepSessions(limit: 30);
-    SleepSession? selected = state.selectedSession;
-    List<SleepEpoch> epochs = state.selectedEpochs;
+    try {
+      state = state.copyWith(isLoading: true);
+      final sessions = await _database.getSleepSessions(limit: 30);
+      SleepSession? selected = state.selectedSession;
+      List<SleepEpoch> epochs = state.selectedEpochs;
 
-    if (sessions.isNotEmpty) {
-      selected = sessions.first;
-      epochs = await _database.getSleepEpochs(selected.id);
+      if (sessions.isNotEmpty) {
+        selected = sessions.first;
+        epochs = await _database.getSleepEpochs(selected.id);
+      }
+
+      state = state.copyWith(
+        sessions: sessions,
+        selectedSession: selected,
+        selectedEpochs: epochs,
+        isLoading: false,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
     }
-
-    state = state.copyWith(
-      sessions: sessions,
-      selectedSession: selected,
-      selectedEpochs: epochs,
-      isLoading: false,
-    );
   }
 
   Future<void> selectSession(SleepSession session) async {
-    state = state.copyWith(isLoading: true, selectedSession: session);
-    final epochs = await _database.getSleepEpochs(session.id);
-    state = state.copyWith(selectedEpochs: epochs, isLoading: false);
+    try {
+      state = state.copyWith(isLoading: true, selectedSession: session);
+      final epochs = await _database.getSleepEpochs(session.id);
+      state = state.copyWith(selectedEpochs: epochs, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
+    }
   }
 
   Future<void> startTracking() async {
