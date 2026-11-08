@@ -347,12 +347,15 @@ class SleepEngine {
       final meanHr = epochHrList.reduce((a, b) => a + b) / epochHrList.length;
       final rmssd = HrvCalculator.calculateRmssd(validPpi);
 
-      // Estimate movement index from short-term HR jerkiness / variations
-      double movementIndex = 0.005; // base resting stillness
+      // Estimate movement index from short-term HR surges
+      // Calm sleep shows subtle RSA variations (< 10 bpm), while movement/arousals cause rapid spikes (> 12 bpm)
+      double movementIndex = 0.005; // baseline restful stillness
       if (epochHrList.length > 1) {
         final maxHr = epochHrList.reduce(max);
         final minHr = epochHrList.reduce(min);
-        movementIndex = (maxHr - minHr) / 100.0; // e.g. 12 bpm swing = 0.12 (wake)
+        if (maxHr - minHr > 12.0) {
+          movementIndex = (maxHr - minHr) / 100.0;
+        }
       }
 
       final stage = SleepStagingModel.classifyEpoch(

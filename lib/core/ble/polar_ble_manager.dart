@@ -675,7 +675,7 @@ class PolarBleManager {
 
   /// Generates a scientifically modeled 7.5-hour overnight sleep session
   /// for Verity Sense testing without waiting 8 hours overnight.
-  PolarExerciseData generateMockSleepExerciseData() {
+  static PolarExerciseData generateMockSleepExerciseData() {
     final random = Random(42);
     final samples = <int>[];
 

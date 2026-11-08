@@ -10,8 +10,7 @@ import 'package:polarsense_extension/features/sleep/sleep_staging_model.dart';
 void main() {
   group('Offline Sleep Processing & Analysis Tests', () {
     test('generateMockSleepExerciseData produces 7.5 hours of continuous 1-second samples', () {
-      final bleManager = PolarBleManager();
-      final exerciseData = bleManager.generateMockSleepExerciseData();
+      final exerciseData = PolarBleManager.generateMockSleepExerciseData();
 
       expect(exerciseData.interval, 1);
       // 7.5 hours * 3600 seconds = 27,000 samples
@@ -69,8 +68,7 @@ void main() {
     });
 
     test('Full 7.5-hour offline mock session stages into Deep, Light, REM, and Wake', () {
-      final bleManager = PolarBleManager();
-      final exerciseData = bleManager.generateMockSleepExerciseData();
+      final exerciseData = PolarBleManager.generateMockSleepExerciseData();
 
       const baselineRestingHr = 58.0;
       const baselineRmssd = 42.0;
@@ -94,7 +92,10 @@ void main() {
 
         final maxHr = epochHrList.reduce(max);
         final minHr = epochHrList.reduce(min);
-        final movementIndex = (maxHr - minHr) / 100.0;
+        double movementIndex = 0.005;
+        if (maxHr - minHr > 12.0) {
+          movementIndex = (maxHr - minHr) / 100.0;
+        }
 
         final stage = SleepStagingModel.classifyEpoch(
           epochMovementIndex: movementIndex,
