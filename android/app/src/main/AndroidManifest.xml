@@ -84,6 +84,10 @@
             tools:targetApi="upside_down_cake" />
 
         <meta-data
+            android:name="com.polarsense.extension.NOTIFICATION_ICON"
+            android:resource="@drawable/ic_notification" />
+
+        <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>

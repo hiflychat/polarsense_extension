@@ -93,9 +93,7 @@ class BackgroundService {
         notificationTitle: 'PolarSense Active Monitoring',
         notificationText: 'Tracking sedentary posture & sensor signals in real-time',
         notificationIcon: const NotificationIcon(
-          resType: ResourceType.drawable,
-          resPrefix: ResourcePrefix.ic,
-          name: 'notification',
+          metaDataName: 'com.polarsense.extension.NOTIFICATION_ICON',
         ),
         callback: startCallback,
       );
