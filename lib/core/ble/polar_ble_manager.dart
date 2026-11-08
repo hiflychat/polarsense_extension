@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:polar/polar.dart';
 import 'polar_constants.dart';
 
@@ -147,6 +149,18 @@ class PolarBleManager {
 
     _discoveredDevices.clear();
     _updateState(BleConnectionState.scanning);
+
+    try {
+      if (!kIsWeb && Platform.isAndroid) {
+        await [
+          Permission.bluetoothScan,
+          Permission.bluetoothConnect,
+          Permission.location,
+        ].request();
+      }
+    } catch (e) {
+      debugPrint('[BLE] Permission request error: $e');
+    }
 
     try {
       final searchSub = _polar.searchForDevice().listen((deviceInfo) {
