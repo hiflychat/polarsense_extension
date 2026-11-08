@@ -22,6 +22,36 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Configure Gradle Mirrors
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cat << 'EOF' > ~/.gradle/init.d/mirror.init.gradle
+          allprojects {
+              buildscript {
+                  repositories {
+                      all { ArtifactRepository repo ->
+                          if (repo instanceof MavenArtifactRepository) {
+                              def u = repo.url.toString()
+                              if (u.contains("repo.maven.apache.org") || u.contains("repo1.maven.org")) {
+                                  repo.url = uri("https://maven.aliyun.com/repository/public")
+                              }
+                          }
+                      }
+                  }
+              }
+              repositories {
+                  all { ArtifactRepository repo ->
+                      if (repo instanceof MavenArtifactRepository) {
+                          def u = repo.url.toString()
+                          if (u.contains("repo.maven.apache.org") || u.contains("repo1.maven.org")) {
+                              repo.url = uri("https://maven.aliyun.com/repository/public")
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
