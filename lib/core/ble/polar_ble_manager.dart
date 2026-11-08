@@ -79,20 +79,20 @@ class PolarBleManager {
 
   void _initPolarListeners() {
     _deviceConnectedSub = _polar.deviceConnected.listen((info) {
-      debugPrint('[BLE] Device connected: ${info.id}');
-      _connectedDeviceId = info.id;
+      debugPrint('[BLE] Device connected: ${info.deviceId}');
+      _connectedDeviceId = info.deviceId;
       _updateState(BleConnectionState.connected);
       _reconnectAttempts = 0;
     });
 
-    _deviceDisconnectedSub = _polar.deviceDisconnected.listen((info) {
-      debugPrint('[BLE] Device disconnected: ${info.id}');
+    _deviceDisconnectedSub = _polar.deviceDisconnected.listen((event) {
+      debugPrint('[BLE] Device disconnected: ${event.info.deviceId}');
       _updateState(BleConnectionState.disconnected);
       _connectedDeviceId = null;
       _cancelStreams();
 
       if (!_intentionalDisconnect) {
-        _attemptAutoReconnect(info.id);
+        _attemptAutoReconnect(event.info.deviceId);
       }
     });
 
@@ -150,8 +150,8 @@ class PolarBleManager {
 
     try {
       final searchSub = _polar.searchForDevice().listen((deviceInfo) {
-        _discoveredDevices[deviceInfo.id] = DiscoveredDevice(
-          deviceId: deviceInfo.id,
+        _discoveredDevices[deviceInfo.deviceId] = DiscoveredDevice(
+          deviceId: deviceInfo.deviceId,
           name: deviceInfo.name.isNotEmpty ? deviceInfo.name : 'Polar Verity Sense',
           rssi: deviceInfo.rssi,
           isConnectable: deviceInfo.isConnectable,
@@ -238,8 +238,10 @@ class PolarBleManager {
       _accSub?.cancel();
       _accSub = _polar.startAccStreaming(
         deviceId,
-        sampleRate: PolarConstants.accSampleRate,
-        range: PolarConstants.accRange,
+        settings: PolarSensorSetting({
+          PolarSettingType.sampleRate: PolarConstants.accSampleRate,
+          PolarSettingType.range: PolarConstants.accRange,
+        }),
       ).listen(
         (data) => _accStreamController.add(data),
         onError: (err) => debugPrint('[BLE] ACC stream error: $err'),
