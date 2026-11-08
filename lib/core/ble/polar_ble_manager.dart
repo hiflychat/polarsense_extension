@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:polar/polar.dart';
+import '../database/health_database.dart';
 import 'polar_constants.dart';
 
 enum BleConnectionState {
@@ -30,12 +31,19 @@ class DiscoveredDevice {
 
 class PolarBleManager {
   final Polar _polar = Polar();
+  final HealthDatabase _database = HealthDatabase();
 
   bool _isMockMode = false;
   bool get isMockMode => _isMockMode;
 
   String? _connectedDeviceId;
   String? get connectedDeviceId => _connectedDeviceId;
+
+  String? _pairedDeviceId;
+  String? get pairedDeviceId => _pairedDeviceId;
+
+  String? _pairedDeviceName;
+  String? get pairedDeviceName => _pairedDeviceName;
 
   BleConnectionState _connectionState = BleConnectionState.disconnected;
   BleConnectionState get connectionState => _connectionState;
@@ -84,6 +92,7 @@ class PolarBleManager {
 
   PolarBleManager() {
     _initPolarListeners();
+    _loadPairedDeviceAndAutoConnect();
   }
 
   void _initPolarListeners() {
@@ -92,6 +101,11 @@ class PolarBleManager {
       _connectedDeviceId = info.deviceId;
       _updateState(BleConnectionState.connected);
       _reconnectAttempts = 0;
+
+      // Remember device
+      final name = _discoveredDevices[info.deviceId]?.name ?? _pairedDeviceName ?? 'Polar Verity Sense';
+      savePairedDevice(info.deviceId, name);
+
       // Start streaming immediately on connection
       _startSensorStreams(info.deviceId);
     });
@@ -124,6 +138,53 @@ class PolarBleManager {
       debugPrint('[BLE] SDK Feature ready: ${event.feature} on ${event.identifier}');
       _startSensorStreams(event.identifier);
     });
+  }
+
+  Future<void> _loadPairedDeviceAndAutoConnect() async {
+    try {
+      _pairedDeviceId = await _database.getSetting('paired_device_id');
+      _pairedDeviceName = await _database.getSetting('paired_device_name');
+      debugPrint('[BLE] Loaded paired device: $_pairedDeviceId ($_pairedDeviceName)');
+
+      if (_pairedDeviceId != null &&
+          _connectionState == BleConnectionState.disconnected &&
+          !_isMockMode) {
+        debugPrint('[BLE] Initiating background auto-connect to $_pairedDeviceId');
+        Future.delayed(const Duration(milliseconds: 1200), () {
+          if (_connectionState == BleConnectionState.disconnected && !_intentionalDisconnect) {
+            connectToDevice(_pairedDeviceId!, deviceName: _pairedDeviceName);
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[BLE] Error loading paired device: $e');
+    }
+  }
+
+  Future<void> savePairedDevice(String deviceId, String name) async {
+    _pairedDeviceId = deviceId;
+    _pairedDeviceName = name;
+    try {
+      await _database.setSetting('paired_device_id', deviceId);
+      await _database.setSetting('paired_device_name', name);
+      debugPrint('[BLE] Saved paired device: $deviceId ($name)');
+    } catch (e) {
+      debugPrint('[BLE] Error saving paired device: $e');
+    }
+  }
+
+  Future<void> forgetDevice() async {
+    await disconnect();
+    _pairedDeviceId = null;
+    _pairedDeviceName = null;
+    try {
+      await _database.removeSetting('paired_device_id');
+      await _database.removeSetting('paired_device_name');
+      debugPrint('[BLE] Removed paired device from persistent storage');
+    } catch (e) {
+      debugPrint('[BLE] Error forgetting device: $e');
+    }
+    _updateState(BleConnectionState.disconnected);
   }
 
   void _updateState(BleConnectionState state) {
@@ -204,9 +265,12 @@ class PolarBleManager {
     }
   }
 
-  Future<void> connectToDevice(String deviceId) async {
+  Future<void> connectToDevice(String deviceId, {String? deviceName}) async {
     _intentionalDisconnect = false;
     _updateState(BleConnectionState.connecting);
+
+    final name = deviceName ?? _discoveredDevices[deviceId]?.name ?? _pairedDeviceName ?? 'Polar Verity Sense';
+    await savePairedDevice(deviceId, name);
 
     if (_isMockMode) {
       _connectedDeviceId = deviceId;

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/background/background_service.dart';
+import '../../core/localization/app_strings.dart';
 import '../../features/health_sync/health_export_service.dart';
 import '../../features/sedentary/sedentary_notifier.dart';
 import '../theme/app_theme.dart';
@@ -28,31 +29,98 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = ref.watch(stringsProvider);
+    final currentLanguage = ref.watch(appLanguageProvider);
     final sedentaryStatus = ref.watch(sedentaryStatusProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings & Ecosystem'),
+        title: Text(strings.settingsTitle),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 1. Sedentary Alert Settings
-          _buildSectionHeader('Sedentary Reminder'),
+          // 0. Language Selector (中英双语设置)
+          _buildSectionHeader(strings.languageSetting),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Stationary Alert Threshold',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  Row(
+                    children: [
+                      const Icon(Icons.language, color: AppTheme.polarCyan, size: 22),
+                      const SizedBox(width: 10),
+                      Text(
+                        strings.languageSetting,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      ChoiceChip(
+                        label: Text(strings.simplifiedChinese),
+                        selected: currentLanguage == AppLanguage.zh,
+                        selectedColor: AppTheme.polarCyan.withOpacity(0.25),
+                        labelStyle: TextStyle(
+                          color: currentLanguage == AppLanguage.zh ? AppTheme.polarCyan : Colors.white70,
+                          fontWeight: currentLanguage == AppLanguage.zh ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        side: BorderSide(
+                          color: currentLanguage == AppLanguage.zh ? AppTheme.polarCyan : AppTheme.darkBorder,
+                        ),
+                        onSelected: (selected) {
+                          if (selected) {
+                            ref.read(appLanguageProvider.notifier).setLanguage(AppLanguage.zh);
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 10),
+                      ChoiceChip(
+                        label: Text(strings.english),
+                        selected: currentLanguage == AppLanguage.en,
+                        selectedColor: AppTheme.polarCyan.withOpacity(0.25),
+                        labelStyle: TextStyle(
+                          color: currentLanguage == AppLanguage.en ? AppTheme.polarCyan : Colors.white70,
+                          fontWeight: currentLanguage == AppLanguage.en ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        side: BorderSide(
+                          color: currentLanguage == AppLanguage.en ? AppTheme.polarCyan : AppTheme.darkBorder,
+                        ),
+                        onSelected: (selected) {
+                          if (selected) {
+                            ref.read(appLanguageProvider.notifier).setLanguage(AppLanguage.en);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // 1. Sedentary Alert Settings
+          _buildSectionHeader(strings.sedentaryTracker),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    strings.sedentaryAlertInterval,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    'Trigger notification and vibration when arm movement VMU remains below 0.04g.',
-                    style: TextStyle(fontSize: 12, color: Colors.white54),
+                  Text(
+                    strings.sedentaryAlertDesc,
+                    style: const TextStyle(fontSize: 12, color: Colors.white54),
                   ),
                   const SizedBox(height: 14),
                   Wrap(
@@ -60,7 +128,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     children: [30, 45, 60, 90].map((minutes) {
                       final isSelected = sedentaryStatus.alertThresholdMinutes == minutes;
                       return ChoiceChip(
-                        label: Text('$minutes min'),
+                        label: Text('$minutes ${strings.min}'),
                         selected: isSelected,
                         selectedColor: AppTheme.polarCyan.withOpacity(0.25),
                         labelStyle: TextStyle(
@@ -77,14 +145,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     }).toList(),
                   ),
                   const Divider(color: AppTheme.darkBorder, height: 24),
-                  const Row(
+                  Row(
                     children: [
-                      Icon(Icons.directions_walk, size: 18, color: AppTheme.recoveryGood),
-                      SizedBox(width: 8),
+                      const Icon(Icons.directions_walk, size: 18, color: AppTheme.recoveryGood),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Walking Reset Requirement: 90 seconds continuous active arm swing (VMU ≥ 0.15g).',
-                          style: TextStyle(fontSize: 11, color: Colors.white60),
+                          strings.walkingResetTip,
+                          style: const TextStyle(fontSize: 11, color: Colors.white60),
                         ),
                       ),
                     ],
@@ -97,7 +165,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 20),
 
           // 2. HealthKit / Health Connect Sync
-          _buildSectionHeader('Health Ecosystem Sync'),
+          _buildSectionHeader(strings.healthPermissions),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -111,13 +179,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: Icon(Icons.favorite, color: AppTheme.polarRed),
                     ),
                     title: Text(Platform.isIOS ? 'Apple HealthKit' : 'Google Health Connect'),
-                    subtitle: const Text(
-                      'Exports overnight sleep stages, RHR, and HRV (RMSSD).',
-                      style: TextStyle(fontSize: 12, color: Colors.white54),
+                    subtitle: Text(
+                      strings.healthPermissionsDesc,
+                      style: const TextStyle(fontSize: 12, color: Colors.white54),
                     ),
                     trailing: OutlinedButton(
                       onPressed: () => _healthService.requestPermissions(),
-                      child: const Text('Permissions'),
+                      child: Text(strings.requestAuth),
                     ),
                   ),
                   const Divider(color: AppTheme.darkBorder),
@@ -128,7 +196,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         backgroundColor: AppTheme.polarCyan,
                         foregroundColor: Colors.black,
                       ),
-                      onPressed: _isSyncingAll ? null : _syncAllSessions,
+                      onPressed: _isSyncingAll ? null : () => _syncAllSessions(strings),
                       icon: _isSyncingAll
                           ? const SizedBox(
                               width: 14,
@@ -136,7 +204,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                             )
                           : const Icon(Icons.sync, size: 18),
-                      label: Text(_isSyncingAll ? 'Syncing...' : 'Sync All Sleep Sessions'),
+                      label: Text(strings.syncAllSessions),
                     ),
                   ),
                 ],
@@ -147,15 +215,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 20),
 
           // 3. Background Execution
-          _buildSectionHeader('Background Execution'),
+          _buildSectionHeader(strings.backgroundExecution),
           Card(
             child: SwitchListTile(
               secondary: const Icon(Icons.stay_current_portrait, color: AppTheme.polarCyan),
-              title: const Text('Keep Sensor Connection in Background'),
+              title: Text(strings.backgroundExecution),
               subtitle: Text(
-                Platform.isAndroid
-                    ? 'Maintains an ongoing foreground service with persistent notification.'
-                    : 'Uses CoreBluetooth background central mode for overnight sleep recording.',
+                strings.backgroundDesc,
                 style: const TextStyle(fontSize: 11, color: Colors.white54),
               ),
               value: _isBackgroundActive,
@@ -174,20 +240,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 20),
 
           // 4. About & SDK
-          _buildSectionHeader('About PolarSense Extension'),
-          const Card(
+          _buildSectionHeader(strings.aboutPolarSense),
+          Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Polar Verity Sense Extension', style: TextStyle(fontWeight: FontWeight.bold)),
-                  SizedBox(height: 4),
-                  Text('Version 1.0.0 • Polar BLE SDK 7.11.0', style: TextStyle(fontSize: 12, color: Colors.white54)),
-                  SizedBox(height: 8),
+                  const Text('Polar Verity Sense Extension', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text('${strings.version} 1.0.0 • Polar BLE SDK 7.12.0', style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                  const SizedBox(height: 8),
                   Text(
-                    'Extends Polar optical heart rate sensors with 26 Hz accelerometer posture analysis, overnight sleep staging heuristic, and HRV recovery evaluation.',
-                    style: TextStyle(fontSize: 12, color: Colors.white38),
+                    strings.hardwareSimulatorDesc,
+                    style: const TextStyle(fontSize: 12, color: Colors.white38),
                   ),
                 ],
               ),
@@ -213,7 +279,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<void> _syncAllSessions() async {
+  Future<void> _syncAllSessions(AppStrings strings) async {
     setState(() => _isSyncingAll = true);
     final count = await _healthService.syncAllUnsyncedSessions();
     setState(() => _isSyncingAll = false);
@@ -221,7 +287,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Synced $count sleep session(s) successfully.'),
+          content: Text('${strings.sessionsSynced}: $count'),
           backgroundColor: AppTheme.recoveryGood,
         ),
       );

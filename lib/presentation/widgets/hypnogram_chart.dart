@@ -14,7 +14,7 @@ class HypnogramChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (epochs.isEmpty) {
+    if (epochs.length < 2) {
       return Container(
         height: 180,
         alignment: Alignment.center,
@@ -23,9 +23,11 @@ class HypnogramChart extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.darkBorder),
         ),
-        child: const Text(
-          'No epoch data recorded for this session',
-          style: TextStyle(color: Colors.white38, fontSize: 13),
+        child: Text(
+          epochs.isEmpty
+              ? 'No epoch data recorded for this session'
+              : 'Recording in progress (need at least 2 epochs to graph)...',
+          style: const TextStyle(color: Colors.white38, fontSize: 13),
         ),
       );
     }

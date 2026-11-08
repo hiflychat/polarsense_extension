@@ -220,4 +220,50 @@ class HealthDatabase {
       alertCount: alertCount,
     );
   }
+
+  // --- App Key-Value Settings Operations ---
+
+  Future<void> _ensureSettingsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> setSetting(String key, String value) async {
+    final db = await database;
+    await _ensureSettingsTable(db);
+    await db.insert(
+      'app_settings',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String?> getSetting(String key) async {
+    final db = await database;
+    await _ensureSettingsTable(db);
+    final results = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (results.isNotEmpty) {
+      return results.first['value'] as String?;
+    }
+    return null;
+  }
+
+  Future<void> removeSetting(String key) async {
+    final db = await database;
+    await _ensureSettingsTable(db);
+    await db.delete(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [key],
+    );
+  }
 }

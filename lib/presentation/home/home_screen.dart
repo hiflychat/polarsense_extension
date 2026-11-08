@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ble/polar_ble_manager.dart';
+import '../../core/database/models/sleep_record.dart';
+import '../../core/localization/app_strings.dart';
 import '../../features/sedentary/sedentary_notifier.dart';
+import '../../features/sleep/sleep_engine.dart';
 import '../../features/sleep/sleep_session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/metric_card.dart';
@@ -14,6 +17,7 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final strings = ref.watch(stringsProvider);
     final bleManager = ref.watch(polarBleManagerProvider);
     final sedentaryStatus = ref.watch(sedentaryStatusProvider);
     final sleepState = ref.watch(sleepHistoryProvider);
@@ -26,7 +30,7 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PolarSense'),
+        title: Text(strings.appTitle),
         actions: [
           StreamBuilder<int>(
             stream: bleManager.hrStream,
@@ -63,17 +67,17 @@ class HomeScreen extends ConsumerWidget {
 
               // 2. Active Sleep Tracking Banner (if active)
               if (liveSleep != null && liveSleep.isTracking)
-                _buildActiveSleepBanner(context, ref, liveSleep)
+                _buildActiveSleepBanner(context, ref, liveSleep, strings)
               else
-                _buildStartSleepCard(context, ref, isBleConnected),
+                _buildStartSleepCard(context, ref, isBleConnected, strings),
 
               const SizedBox(height: 16),
 
               // 3. Last Night's Recovery Summary Card
               if (latestSession != null)
-                _buildLatestRecoveryCard(context, latestSession)
+                _buildLatestRecoveryCard(context, latestSession, strings)
               else
-                _buildEmptyRecoveryCard(),
+                _buildEmptyRecoveryCard(strings),
 
               const SizedBox(height: 16),
 
@@ -84,10 +88,10 @@ class HomeScreen extends ConsumerWidget {
                     child: MetricCard(
                       icon: Icons.timer,
                       iconColor: AppTheme.polarCyan,
-                      title: 'Current Sitting',
+                      title: strings.currentSitting,
                       value: '${sedentaryStatus.sedentaryMinutes}',
-                      unit: 'min',
-                      subtitle: 'Limit: ${sedentaryStatus.alertThresholdMinutes} min',
+                      unit: strings.min,
+                      subtitle: '${strings.limit}: ${sedentaryStatus.alertThresholdMinutes} ${strings.min}',
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -95,10 +99,10 @@ class HomeScreen extends ConsumerWidget {
                     child: MetricCard(
                       icon: Icons.directions_walk,
                       iconColor: AppTheme.recoveryGood,
-                      title: 'Walking Streak',
+                      title: strings.walkingStreak,
                       value: '${sedentaryStatus.activeWalkingSeconds}',
-                      unit: 'sec',
-                      subtitle: 'Goal: 90 sec reset',
+                      unit: strings.sec,
+                      subtitle: strings.goal90s,
                     ),
                   ),
                 ],
@@ -111,9 +115,10 @@ class HomeScreen extends ConsumerWidget {
   }
 
   Widget _buildActiveSleepBanner(
-      BuildContext context, WidgetRef ref, dynamic liveSleep) {
+      BuildContext context, WidgetRef ref, LiveSleepStatus liveSleep, AppStrings strings) {
     final minutes = liveSleep.elapsed.inMinutes;
     final seconds = liveSleep.elapsed.inSeconds % 60;
+    final stageName = _getLocalizedSleepStage(liveSleep.currentStage, strings);
 
     return Card(
       color: AppTheme.remColor.withOpacity(0.18),
@@ -131,9 +136,9 @@ class HomeScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Sleep Session Active',
-                    style: TextStyle(
+                  Text(
+                    strings.sleepTrackingActive,
+                    style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -141,7 +146,7 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Elapsed: ${minutes}m ${seconds}s  •  Stage: ${liveSleep.currentStage.name}',
+                    '${strings.elapsed}: ${minutes}${strings.min} ${seconds}${strings.sec}  •  ${strings.stage}: $stageName',
                     style: const TextStyle(fontSize: 12, color: Colors.white70),
                   ),
                 ],
@@ -154,7 +159,7 @@ class HomeScreen extends ConsumerWidget {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               onPressed: () => ref.read(sleepHistoryProvider.notifier).stopTracking(),
-              child: const Text('Wake Up'),
+              child: Text(strings.wakeUpAndSave),
             ),
           ],
         ),
@@ -162,7 +167,21 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStartSleepCard(BuildContext context, WidgetRef ref, bool isBleConnected) {
+  String _getLocalizedSleepStage(SleepStage stage, AppStrings strings) {
+    switch (stage) {
+      case SleepStage.wake:
+        return strings.wake;
+      case SleepStage.rem:
+        return strings.rem;
+      case SleepStage.light:
+        return strings.light;
+      case SleepStage.deep:
+        return strings.deep;
+    }
+  }
+
+  Widget _buildStartSleepCard(
+      BuildContext context, WidgetRef ref, bool isBleConnected, AppStrings strings) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -177,18 +196,18 @@ class HomeScreen extends ConsumerWidget {
               child: const Icon(Icons.nightlight_round, color: AppTheme.remColor, size: 24),
             ),
             const SizedBox(width: 14),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Track Overnight Sleep',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                    strings.trackOvernightSleep,
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
                   ),
-                  SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Text(
-                    'Records PPI, RMSSD, and 30s epochs',
-                    style: TextStyle(fontSize: 12, color: Colors.white54),
+                    strings.recordsPpiRmssd,
+                    style: const TextStyle(fontSize: 12, color: Colors.white54),
                   ),
                 ],
               ),
@@ -201,7 +220,7 @@ class HomeScreen extends ConsumerWidget {
               onPressed: isBleConnected
                   ? () => ref.read(sleepHistoryProvider.notifier).startTracking()
                   : null,
-              child: Text(isBleConnected ? 'Start' : 'Connect BLE'),
+              child: Text(isBleConnected ? strings.startSleepTracking : strings.connectBleFirst),
             ),
           ],
         ),
@@ -209,7 +228,8 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildLatestRecoveryCard(BuildContext context, dynamic session) {
+  Widget _buildLatestRecoveryCard(
+      BuildContext context, SleepSession session, AppStrings strings) {
     final hours = (session.durationMinutes / 60.0).toStringAsFixed(1);
 
     return Card(
@@ -218,18 +238,18 @@ class HomeScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Last Night Recovery',
-                  style: TextStyle(
+                  strings.lastNightRecovery,
+                  style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                     color: Colors.white,
                   ),
                 ),
-                Icon(Icons.chevron_right, color: Colors.white38),
+                const Icon(Icons.chevron_right, color: Colors.white38),
               ],
             ),
             const SizedBox(height: 16),
@@ -238,7 +258,7 @@ class HomeScreen extends ConsumerWidget {
                 RecoveryGauge(
                   score: session.recoveryScore,
                   size: 130,
-                  subtitle: '$hours hrs sleep',
+                  subtitle: '$hours ${strings.hrs}',
                 ),
                 const SizedBox(width: 18),
                 Expanded(
@@ -246,21 +266,21 @@ class HomeScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildMetricRow(
-                        'Resting HR',
-                        '${session.restingHr.round()} bpm',
+                        strings.restingHrLowest,
+                        '${session.restingHr.round()} ${strings.bpm}',
                         Icons.favorite,
                         AppTheme.polarRed,
                       ),
                       const SizedBox(height: 10),
                       _buildMetricRow(
-                        'Night HRV',
-                        '${session.avgRmssd.round()} ms',
+                        strings.hrvTitle,
+                        '${session.avgRmssd.round()} ${strings.ms}',
                         Icons.insights,
                         AppTheme.polarCyan,
                       ),
                       const SizedBox(height: 10),
                       _buildMetricRow(
-                        'Deep Sleep',
+                        strings.deep,
                         '${session.deepPercentage.round()}%',
                         Icons.waves,
                         AppTheme.deepColor,
@@ -294,7 +314,7 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildEmptyRecoveryCard() {
+  Widget _buildEmptyRecoveryCard(AppStrings strings) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -303,15 +323,15 @@ class HomeScreen extends ConsumerWidget {
             children: [
               Icon(Icons.bedtime_outlined, size: 40, color: Colors.white.withOpacity(0.3)),
               const SizedBox(height: 12),
-              const Text(
-                'No sleep session recorded yet',
-                style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+              Text(
+                strings.noSleepRecorded,
+                style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 4),
-              const Text(
-                'Wear your Polar Verity Sense to bed and tap "Start" to record sleep stages & recovery.',
+              Text(
+                strings.noSleepRecordedDesc,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white38, fontSize: 12),
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
               ),
             ],
           ),

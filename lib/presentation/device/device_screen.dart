@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ble/polar_ble_manager.dart';
+import '../../core/localization/app_strings.dart';
 import '../../features/sedentary/sedentary_notifier.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pulse_indicator.dart';
@@ -17,11 +18,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = ref.watch(stringsProvider);
     final bleManager = ref.watch(polarBleManagerProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Polar Verity Sense'),
+        title: Text(strings.sensorTitle),
         actions: [
           StreamBuilder<BleConnectionState>(
             stream: bleManager.stateStream,
@@ -34,7 +36,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 padding: const EdgeInsets.only(right: 16),
                 child: Center(
                   child: PulseIndicator(
-                    hr: null,
+                    hr: bleManager.currentHr,
                     isConnected: isConnected,
                   ),
                 ),
@@ -55,23 +57,29 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               // 1. Connection Header Card
-              _buildConnectionCard(bleManager, state, isConnected),
+              _buildConnectionCard(bleManager, state, isConnected, strings),
 
               const SizedBox(height: 16),
 
               // 2. Battery & Live Signal Monitors (if connected)
               if (isConnected) ...[
-                _buildLiveTelemetryCard(bleManager),
+                _buildLiveTelemetryCard(bleManager, strings),
                 const SizedBox(height: 16),
               ],
 
-              // 3. Mock Testing & Hardware Simulation Panel
-              _buildSimulationPanel(bleManager),
+              // 3. Paired Device Card (if device is remembered)
+              if (bleManager.pairedDeviceId != null) ...[
+                _buildPairedDeviceCard(bleManager, isConnected, strings),
+                const SizedBox(height: 16),
+              ],
+
+              // 4. Mock Testing & Hardware Simulation Panel
+              _buildSimulationPanel(bleManager, strings),
 
               const SizedBox(height: 16),
 
-              // 4. Nearby Devices List (when scanning)
-              _buildDiscoveredDevicesList(bleManager),
+              // 5. Nearby Devices List (when scanning)
+              _buildDiscoveredDevicesList(bleManager, strings),
             ],
           );
         },
@@ -80,7 +88,26 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   }
 
   Widget _buildConnectionCard(
-      PolarBleManager bleManager, BleConnectionState state, bool isConnected) {
+      PolarBleManager bleManager, BleConnectionState state, bool isConnected, AppStrings strings) {
+    String statusText;
+    switch (state) {
+      case BleConnectionState.connected:
+        statusText = strings.connected;
+        break;
+      case BleConnectionState.streaming:
+        statusText = strings.streaming;
+        break;
+      case BleConnectionState.connecting:
+        statusText = strings.connecting;
+        break;
+      case BleConnectionState.scanning:
+        statusText = strings.scanning;
+        break;
+      case BleConnectionState.disconnected:
+        statusText = strings.disconnected;
+        break;
+    }
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -107,8 +134,10 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                     children: [
                       Text(
                         isConnected
-                            ? (bleManager.connectedDeviceId ?? 'Polar Verity Sense')
-                            : 'No Device Connected',
+                            ? (bleManager.connectedDeviceId ?? bleManager.pairedDeviceName ?? 'Polar Verity Sense')
+                            : (bleManager.pairedDeviceName != null
+                                ? '${bleManager.pairedDeviceName} (${strings.pairedDevice})'
+                                : strings.noDeviceConnected),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -117,7 +146,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Status: ${state.name.toUpperCase()}',
+                        '${strings.status}: $statusText',
                         style: TextStyle(
                           fontSize: 12,
                           color: isConnected ? AppTheme.polarCyan : Colors.white38,
@@ -134,7 +163,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       side: const BorderSide(color: AppTheme.polarRed),
                     ),
                     onPressed: () => bleManager.disconnect(),
-                    child: const Text('Disconnect'),
+                    child: Text(strings.disconnect),
                   )
                 else
                   ElevatedButton.icon(
@@ -152,7 +181,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                           )
                         : const Icon(Icons.search, size: 18),
-                    label: Text(state == BleConnectionState.scanning ? 'Scanning...' : 'Scan BLE'),
+                    label: Text(state == BleConnectionState.scanning ? strings.scanningBtn : strings.scanBle),
                   ),
               ],
             ),
@@ -162,16 +191,64 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     );
   }
 
-  Widget _buildLiveTelemetryCard(PolarBleManager bleManager) {
+  Widget _buildPairedDeviceCard(PolarBleManager bleManager, bool isConnected, AppStrings strings) {
+    return Card(
+      color: Colors.blueGrey.withOpacity(0.12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.blueGrey.withOpacity(0.3)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            const Icon(Icons.bookmark_added, color: AppTheme.polarCyan, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    strings.pairedDevice,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${bleManager.pairedDeviceName ?? "Polar Verity Sense"} (ID: ${bleManager.pairedDeviceId})',
+                    style: const TextStyle(fontSize: 12, color: Colors.white70),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isConnected ? strings.connected : strings.autoConnecting,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isConnected ? AppTheme.recoveryGood : Colors.white38,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppTheme.polarRed),
+              onPressed: () => bleManager.forgetDevice(),
+              child: Text(strings.forgetDevice),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLiveTelemetryCard(PolarBleManager bleManager, AppStrings strings) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Real-Time Sensor Telemetry',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+            Text(
+              strings.realtimeTelemetry,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
             ),
             const SizedBox(height: 16),
             Row(
@@ -186,7 +263,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       return _buildMiniMetric(
                         Icons.battery_charging_full,
                         battery != null ? '$battery%' : '--',
-                        'Sensor Battery',
+                        strings.sensorBattery,
                         battery != null && battery > 20 ? AppTheme.recoveryGood : AppTheme.polarRed,
                       );
                     },
@@ -202,8 +279,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       final hr = snapshot.data ?? bleManager.currentHr ?? 0;
                       return _buildMiniMetric(
                         Icons.favorite,
-                        hr > 0 ? '$hr BPM' : '--',
-                        'Optical HR',
+                        hr > 0 ? '$hr ${strings.bpm}' : '--',
+                        strings.opticalHr,
                         AppTheme.polarRed,
                       );
                     },
@@ -232,11 +309,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                         color: hasData ? AppTheme.polarCyan : Colors.white24,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        hasData
-                            ? 'ACC Stream 26 Hz: Active (arm posture synced)'
-                            : 'ACC Stream: Waiting for samples...',
-                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                      Expanded(
+                        child: Text(
+                          hasData ? strings.accActive : strings.accWaiting,
+                          style: const TextStyle(fontSize: 12, color: Colors.white70),
+                        ),
                       ),
                     ],
                   ),
@@ -264,7 +341,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             children: [
               Icon(icon, size: 16, color: color),
               const SizedBox(width: 6),
-              Text(label, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(fontSize: 11, color: Colors.white54),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -277,7 +360,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     );
   }
 
-  Widget _buildSimulationPanel(PolarBleManager bleManager) {
+  Widget _buildSimulationPanel(PolarBleManager bleManager, AppStrings strings) {
     return Card(
       color: Colors.indigo.withOpacity(0.12),
       shape: RoundedRectangleBorder(
@@ -293,15 +376,16 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               children: [
                 const Icon(Icons.science, color: Colors.indigoAccent, size: 20),
                 const SizedBox(width: 8),
-                const Text(
-                  'Hardware Simulator (Developer Mode)',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                Expanded(
+                  child: Text(
+                    strings.hardwareSimulator,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 Switch(
                   value: bleManager.isMockMode,
                   activeColor: Colors.indigoAccent,
@@ -314,21 +398,21 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               ],
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Simulate 26 Hz accelerometer and PPI streams without physical Polar Verity Sense.',
-              style: TextStyle(fontSize: 12, color: Colors.white60),
+            Text(
+              strings.hardwareSimulatorDesc,
+              style: const TextStyle(fontSize: 12, color: Colors.white60),
             ),
             if (bleManager.isMockMode) ...[
               const Divider(color: Colors.white12, height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Simulate Active Walking (VMU ≥ 0.15g)',
-                    style: TextStyle(fontSize: 13, color: Colors.white70),
+                  Text(
+                    strings.simulateWalking,
+                    style: const TextStyle(fontSize: 13, color: Colors.white70),
                   ),
                   FilterChip(
-                    label: Text(_mockWalking ? 'Walking' : 'Stationary'),
+                    label: Text(_mockWalking ? strings.walking : strings.stationary),
                     selected: _mockWalking,
                     selectedColor: AppTheme.recoveryGood.withOpacity(0.3),
                     checkmarkColor: AppTheme.recoveryGood,
@@ -341,11 +425,6 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
-              const Text(
-                'Toggle to simulate 90 seconds continuous walking to test the sedentary timer reset.',
-                style: TextStyle(fontSize: 11, color: Colors.white38),
-              ),
             ],
           ],
         ),
@@ -353,7 +432,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     );
   }
 
-  Widget _buildDiscoveredDevicesList(PolarBleManager bleManager) {
+  Widget _buildDiscoveredDevicesList(PolarBleManager bleManager, AppStrings strings) {
     return StreamBuilder<List<DiscoveredDevice>>(
       stream: bleManager.discoveredDevicesStream,
       initialData: const [],
@@ -369,9 +448,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Discovered Polar Devices',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                Text(
+                  strings.discoveredDevices,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 const SizedBox(height: 12),
                 ListView.separated(
@@ -397,8 +476,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                           backgroundColor: AppTheme.polarCyan,
                           foregroundColor: Colors.black,
                         ),
-                        onPressed: () => bleManager.connectToDevice(dev.deviceId),
-                        child: const Text('Connect'),
+                        onPressed: () => bleManager.connectToDevice(dev.deviceId, deviceName: dev.name),
+                        child: Text(strings.connect),
                       ),
                     );
                   },

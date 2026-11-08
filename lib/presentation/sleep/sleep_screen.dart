@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/database/models/sleep_record.dart';
+import '../../core/localization/app_strings.dart';
 import '../../features/health_sync/health_export_service.dart';
 import '../../features/sleep/recovery_score_calculator.dart';
 import '../../features/sleep/sleep_session_controller.dart';
@@ -23,17 +24,18 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = ref.watch(stringsProvider);
     final sleepState = ref.watch(sleepHistoryProvider);
     final selectedSession = sleepState.selectedSession;
     final epochs = sleepState.selectedEpochs;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sleep & Recovery'),
+        title: Text(strings.sleepRecoveryTitle),
         actions: [
           if (selectedSession != null)
             IconButton(
-              tooltip: 'Export to HealthKit / Health Connect',
+              tooltip: strings.exportTooltip,
               icon: _isSyncing
                   ? const SizedBox(
                       width: 16,
@@ -46,14 +48,14 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                           ? AppTheme.recoveryGood
                           : AppTheme.polarCyan,
                     ),
-              onPressed: _isSyncing ? null : () => _handleSync(selectedSession),
+              onPressed: _isSyncing ? null : () => _handleSync(selectedSession, strings),
             ),
         ],
       ),
       body: sleepState.isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.polarCyan))
           : (sleepState.sessions.isEmpty
-              ? _buildEmptyState()
+              ? _buildEmptyState(strings)
               : SingleChildScrollView(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -66,7 +68,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
 
                       if (selectedSession != null) ...[
                         // 2. Recovery Gauge & Breakdown
-                        _buildRecoveryHeader(selectedSession),
+                        _buildRecoveryHeader(selectedSession, strings),
 
                         const SizedBox(height: 16),
 
@@ -76,12 +78,12 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                         const SizedBox(height: 16),
 
                         // 4. Stage Breakdown Bar
-                        _buildStageProportionCard(selectedSession),
+                        _buildStageProportionCard(selectedSession, strings),
 
                         const SizedBox(height: 16),
 
                         // 5. Biometric Grid
-                        _buildMetricsGrid(selectedSession),
+                        _buildMetricsGrid(selectedSession, strings),
                       ],
                     ],
                   ),
@@ -89,7 +91,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(AppStrings strings) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -98,15 +100,15 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
           children: [
             Icon(Icons.bedtime_outlined, size: 56, color: Colors.white.withOpacity(0.3)),
             const SizedBox(height: 16),
-            const Text(
-              'No Sleep Sessions Recorded',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            Text(
+              strings.noSleepEmpty,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Connect your Polar Verity Sense and tap "Start Sleep Session" on the Home tab to record your overnight sleep stages.',
+            Text(
+              strings.noSleepEmptyDesc,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.white54),
+              style: const TextStyle(fontSize: 13, color: Colors.white54),
             ),
           ],
         ),
@@ -146,7 +148,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     );
   }
 
-  Widget _buildRecoveryHeader(SleepSession session) {
+  Widget _buildRecoveryHeader(SleepSession session, AppStrings strings) {
     final breakdown = RecoveryScoreCalculator.calculate(
       durationMinutes: session.durationMinutes,
       deepMinutes: session.deepMinutes,
@@ -177,11 +179,11 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _buildScoreFactorRow('Duration (30%)', '${breakdown.durationScore.round()}/100'),
+                      _buildScoreFactorRow(strings.durationFactor, '${breakdown.durationScore.round()}/100'),
                       const SizedBox(height: 4),
-                      _buildScoreFactorRow('Deep+REM (30%)', '${breakdown.stageRatioScore.round()}/100'),
+                      _buildScoreFactorRow(strings.stageRatioFactor, '${breakdown.stageRatioScore.round()}/100'),
                       const SizedBox(height: 4),
-                      _buildScoreFactorRow('HRV Index (40%)', '${breakdown.hrvScore.round()}/100'),
+                      _buildScoreFactorRow(strings.hrvFactor, '${breakdown.hrvScore.round()}/100'),
                     ],
                   ),
                 ),
@@ -203,16 +205,16 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     );
   }
 
-  Widget _buildStageProportionCard(SleepSession session) {
+  Widget _buildStageProportionCard(SleepSession session, AppStrings strings) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Stage Distribution',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+            Text(
+              strings.stageDistribution,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 14),
             // Multi-segment horizontal bar
@@ -224,22 +226,22 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                   children: [
                     if (session.deepPercentage > 0)
                       Expanded(
-                        flex: (session.deepPercentage * 10).round(),
+                        flex: (session.deepPercentage * 10).round().clamp(1, 1000),
                         child: Container(color: AppTheme.deepColor),
                       ),
                     if (session.lightPercentage > 0)
                       Expanded(
-                        flex: (session.lightPercentage * 10).round(),
+                        flex: (session.lightPercentage * 10).round().clamp(1, 1000),
                         child: Container(color: AppTheme.lightColor),
                       ),
                     if (session.remPercentage > 0)
                       Expanded(
-                        flex: (session.remPercentage * 10).round(),
+                        flex: (session.remPercentage * 10).round().clamp(1, 1000),
                         child: Container(color: AppTheme.remColor),
                       ),
                     if (session.wakePercentage > 0)
                       Expanded(
-                        flex: (session.wakePercentage * 10).round(),
+                        flex: (session.wakePercentage * 10).round().clamp(1, 1000),
                         child: Container(color: AppTheme.wakeColor),
                       ),
                   ],
@@ -250,10 +252,10 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildStageStat('Deep', '${session.deepMinutes}m', '${session.deepPercentage.round()}%', AppTheme.deepColor),
-                _buildStageStat('Light', '${session.lightMinutes}m', '${session.lightPercentage.round()}%', AppTheme.lightColor),
-                _buildStageStat('REM', '${session.remMinutes}m', '${session.remPercentage.round()}%', AppTheme.remColor),
-                _buildStageStat('Wake', '${session.wakeMinutes}m', '${session.wakePercentage.round()}%', AppTheme.wakeColor),
+                _buildStageStat(strings.deep, '${session.deepMinutes}${strings.min}', '${session.deepPercentage.round()}%', AppTheme.deepColor),
+                _buildStageStat(strings.light, '${session.lightMinutes}${strings.min}', '${session.lightPercentage.round()}%', AppTheme.lightColor),
+                _buildStageStat(strings.rem, '${session.remMinutes}${strings.min}', '${session.remPercentage.round()}%', AppTheme.remColor),
+                _buildStageStat(strings.wake, '${session.wakeMinutes}${strings.min}', '${session.wakePercentage.round()}%', AppTheme.wakeColor),
               ],
             ),
           ],
@@ -280,7 +282,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     );
   }
 
-  Widget _buildMetricsGrid(SleepSession session) {
+  Widget _buildMetricsGrid(SleepSession session, AppStrings strings) {
     final hours = (session.durationMinutes / 60.0).toStringAsFixed(1);
 
     return Column(
@@ -291,10 +293,10 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
               child: MetricCard(
                 icon: Icons.hotel,
                 iconColor: AppTheme.polarCyan,
-                title: 'Total Sleep',
+                title: strings.totalSleep,
                 value: hours,
-                unit: 'hrs',
-                subtitle: '${session.durationMinutes} minutes in bed',
+                unit: strings.hrs,
+                subtitle: '${session.durationMinutes} ${strings.min}',
               ),
             ),
             const SizedBox(width: 12),
@@ -302,10 +304,10 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
               child: MetricCard(
                 icon: Icons.favorite,
                 iconColor: AppTheme.polarRed,
-                title: 'Resting HR',
+                title: strings.restingHrLowest,
                 value: '${session.restingHr.round()}',
-                unit: 'bpm',
-                subtitle: 'Overnight lowest 10%',
+                unit: strings.bpm,
+                subtitle: strings.restingHrDesc,
               ),
             ),
           ],
@@ -317,10 +319,10 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
               child: MetricCard(
                 icon: Icons.show_chart,
                 iconColor: AppTheme.recoveryGood,
-                title: 'HRV (RMSSD)',
+                title: strings.hrvTitle,
                 value: '${session.avgRmssd.round()}',
-                unit: 'ms',
-                subtitle: 'Autonomic recovery',
+                unit: strings.ms,
+                subtitle: strings.hrvDesc,
               ),
             ),
             const SizedBox(width: 12),
@@ -328,10 +330,10 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
               child: MetricCard(
                 icon: Icons.cloud_done,
                 iconColor: session.syncedToHealth ? AppTheme.recoveryGood : Colors.white38,
-                title: 'Health Sync',
-                value: session.syncedToHealth ? 'Synced' : 'Local',
+                title: strings.healthSync,
+                value: session.syncedToHealth ? strings.synced : strings.localOnly,
                 unit: '',
-                subtitle: 'Apple Health / Health Connect',
+                subtitle: 'HealthKit / Health Connect',
               ),
             ),
           ],
@@ -340,7 +342,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     );
   }
 
-  Future<void> _handleSync(SleepSession session) async {
+  Future<void> _handleSync(SleepSession session, AppStrings strings) async {
     setState(() => _isSyncing = true);
     final ok = await _healthExportService.exportSleepSession(session);
     setState(() => _isSyncing = false);
@@ -348,11 +350,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            ok
-                ? 'Successfully synced session to Health ecosystem!'
-                : 'Could not sync. Ensure Health permissions are granted.',
-          ),
+          content: Text(ok ? strings.syncSuccess : strings.syncFail),
           backgroundColor: ok ? AppTheme.recoveryGood : AppTheme.polarRed,
         ),
       );
