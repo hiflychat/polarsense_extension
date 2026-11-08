@@ -37,7 +37,7 @@ class AppTheme {
         surface: darkCard,
         error: recoveryLow,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: darkCard,
         elevation: 0,
         shape: RoundedRectangleBorder(

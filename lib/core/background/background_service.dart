@@ -51,11 +51,6 @@ class BackgroundService {
         channelDescription: 'Maintains continuous Bluetooth connection with Polar Verity Sense.',
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
-        iconData: const NotificationIconData(
-          resType: ResourceType.mipmap,
-          resPrefix: ResourcePrefix.ic,
-          name: 'launcher',
-        ),
       ),
       iosNotificationOptions: const IOSNotificationOptions(
         showNotification: false,
