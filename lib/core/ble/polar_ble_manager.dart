@@ -47,8 +47,8 @@ class PolarBleManager {
   final _accStreamController = StreamController<PolarAccData>.broadcast();
   Stream<PolarAccData> get accStream => _accStreamController.stream;
 
-  final _ppiStreamController = StreamController<PolarOhrPpiData>.broadcast();
-  Stream<PolarOhrPpiData> get ppiStream => _ppiStreamController.stream;
+  final _ppiStreamController = StreamController<PolarPpiData>.broadcast();
+  Stream<PolarPpiData> get ppiStream => _ppiStreamController.stream;
 
   final _hrStreamController = StreamController<int>.broadcast();
   Stream<int> get hrStream => _hrStreamController.stream;
@@ -247,7 +247,7 @@ class PolarBleManager {
 
       // 2. Optical Heart Rate PPI stream
       _ppiSub?.cancel();
-      _ppiSub = _polar.startOhrPPIStreaming(deviceId).listen(
+      _ppiSub = _polar.startPpiStreaming(deviceId).listen(
         (data) => _ppiStreamController.add(data),
         onError: (err) => debugPrint('[BLE] PPI stream error: $err'),
       );
@@ -317,13 +317,16 @@ class PolarBleManager {
     _mockPpiTimer?.cancel();
     _mockPpiTimer = Timer.periodic(const Duration(milliseconds: 850), (timer) {
       final ppiMs = 800 + random.nextInt(120);
-      final sample = PolarOhrPpiSample(
+      final sample = PolarPpiSample(
+        timeStamp: DateTime.now().millisecondsSinceEpoch,
         ppi: ppiMs,
         blockerBit: false,
         errorEstimate: 0,
         hr: (60000 / ppiMs).round(),
+        skinContactStatus: true,
+        skinContactSupported: true,
       );
-      _ppiStreamController.add(PolarOhrPpiData(samples: [sample]));
+      _ppiStreamController.add(PolarPpiData(samples: [sample]));
       _hrStreamController.add((60000 / ppiMs).round());
     });
 

@@ -41,7 +41,7 @@ class SleepEngine {
   DateTime? _sessionStartTime;
 
   StreamSubscription<PolarAccData>? _accSub;
-  StreamSubscription<PolarOhrPpiData>? _ppiSub;
+  StreamSubscription<PolarPpiData>? _ppiSub;
 
   final List<int> _epochPpiBuffer = [];
   final List<double> _epochVmuBuffer = [];
@@ -66,7 +66,7 @@ class SleepEngine {
 
   Future<void> startSession({
     required Stream<PolarAccData> accStream,
-    required Stream<PolarOhrPpiData> ppiStream,
+    required Stream<PolarPpiData> ppiStream,
   }) async {
     if (_isTracking) return;
 
@@ -107,7 +107,7 @@ class SleepEngine {
     _checkEpochCompletion();
   }
 
-  void _processPpiData(PolarOhrPpiData data) {
+  void _processPpiData(PolarPpiData data) {
     if (!_isTracking) return;
 
     for (final sample in data.samples) {
