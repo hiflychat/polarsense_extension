@@ -82,20 +82,30 @@ class BackgroundService {
       return true;
     }
 
-    final receivePort = FlutterForegroundTask.receivePort;
-    receivePort?.listen((message) {
-      debugPrint('[BackgroundService] Received message: $message');
-    });
+    try {
+      final receivePort = FlutterForegroundTask.receivePort;
+      receivePort?.listen((message) {
+        debugPrint('[BackgroundService] Received message: $message');
+      });
 
-    final serviceRequest = await FlutterForegroundTask.startService(
-      serviceId: 256,
-      notificationTitle: 'PolarSense Active Monitoring',
-      notificationText: 'Tracking sedentary posture & sensor signals in real-time',
-      callback: startCallback,
-    );
+      final serviceRequest = await FlutterForegroundTask.startService(
+        serviceId: 256,
+        notificationTitle: 'PolarSense Active Monitoring',
+        notificationText: 'Tracking sedentary posture & sensor signals in real-time',
+        notificationIcon: const NotificationIcon(
+          resType: ResourceType.drawable,
+          resPrefix: ResourcePrefix.ic,
+          name: 'notification',
+        ),
+        callback: startCallback,
+      );
 
-    _isRunning = serviceRequest is ServiceRequestSuccess;
-    return _isRunning;
+      _isRunning = serviceRequest is ServiceRequestSuccess;
+      return _isRunning;
+    } catch (e) {
+      debugPrint('[BackgroundService] Error starting foreground service: $e');
+      return false;
+    }
   }
 
   Future<bool> stopService() async {

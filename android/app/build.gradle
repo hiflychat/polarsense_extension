@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace "com.polarsense.extension"
-    compileSdk = 36
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     sourceSets {
@@ -26,7 +26,7 @@ android {
     defaultConfig {
         applicationId = "com.polarsense.extension"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 35
         multiDexEnabled = true
         versionCode = flutter.versionCode
         versionName = flutter.versionName

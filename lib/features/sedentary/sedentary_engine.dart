@@ -106,17 +106,21 @@ class SedentaryEngine {
     // Continuous 1-second ticker for real-time live seconds progression
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_isDeviceConnected) {
-        if (_currentState == PostureState.sedentary) {
-          _sedentarySeconds++;
-          _checkAlertCondition();
-        } else if (_currentState == PostureState.activeWalking) {
-          _activeWalkingSeconds++;
-          if (_activeWalkingSeconds >= walkingResetRequirementSec) {
-            _handleWalkingReset();
+      try {
+        if (_isDeviceConnected) {
+          if (_currentState == PostureState.sedentary) {
+            _sedentarySeconds++;
+            _checkAlertCondition();
+          } else if (_currentState == PostureState.activeWalking) {
+            _activeWalkingSeconds++;
+            if (_activeWalkingSeconds >= walkingResetRequirementSec) {
+              _handleWalkingReset();
+            }
           }
+          _emitStatus();
         }
-        _emitStatus();
+      } catch (e) {
+        debugPrint('[SedentaryEngine] Ticker error: $e');
       }
     });
 

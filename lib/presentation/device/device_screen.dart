@@ -57,6 +57,54 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              // 0. Permission Warning Banner (if permissions not granted)
+              FutureBuilder<bool>(
+                future: PolarBleManager.hasBlePermissions(),
+                builder: (context, permSnapshot) {
+                  if (permSnapshot.hasData && permSnapshot.data == false) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.security, color: Colors.amber, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              strings.bluetoothPermissionPrompt,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.amber,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            ),
+                            onPressed: () async {
+                              await PolarBleManager.requestBlePermissions();
+                              setState(() {});
+                            },
+                            child: Text(strings.grantPermission),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+
               // 1. Connection Header Card
               _buildConnectionCard(bleManager, state, isConnected, strings),
 

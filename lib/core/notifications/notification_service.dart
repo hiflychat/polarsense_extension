@@ -22,7 +22,8 @@ class NotificationService {
     if (_isInitialized) return;
 
     try {
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      // Use clean vector drawable for notifications (prevents Adaptive Icon XML crash)
+      const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
       const iosSettings = DarwinInitializationSettings(
         requestAlertPermission: true,
         requestBadgePermission: true,
@@ -48,31 +49,35 @@ class NotificationService {
   }
 
   Future<void> _createNotificationChannels() async {
-    final androidPlugin = _notificationsPlugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    try {
+      final androidPlugin = _notificationsPlugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
 
-    if (androidPlugin != null) {
-      await androidPlugin.createNotificationChannel(
-        const AndroidNotificationChannel(
-          sedentaryChannelId,
-          sedentaryChannelName,
-          description: sedentaryChannelDesc,
-          importance: Importance.max,
-          enableVibration: true,
-          playSound: true,
-        ),
-      );
+      if (androidPlugin != null) {
+        await androidPlugin.createNotificationChannel(
+          const AndroidNotificationChannel(
+            sedentaryChannelId,
+            sedentaryChannelName,
+            description: sedentaryChannelDesc,
+            importance: Importance.max,
+            enableVibration: true,
+            playSound: true,
+          ),
+        );
 
-      await androidPlugin.createNotificationChannel(
-        const AndroidNotificationChannel(
-          sleepChannelId,
-          sleepChannelName,
-          description: sleepChannelDesc,
-          importance: Importance.high,
-          enableVibration: false,
-          playSound: true,
-        ),
-      );
+        await androidPlugin.createNotificationChannel(
+          const AndroidNotificationChannel(
+            sleepChannelId,
+            sleepChannelName,
+            description: sleepChannelDesc,
+            importance: Importance.high,
+            enableVibration: false,
+            playSound: true,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[Notifications] Error creating channels: $e');
     }
   }
 
@@ -81,63 +86,73 @@ class NotificationService {
   }
 
   Future<void> showSedentaryAlert({required int minutesStationary}) async {
-    const androidDetails = AndroidNotificationDetails(
-      sedentaryChannelId,
-      sedentaryChannelName,
-      channelDescription: sedentaryChannelDesc,
-      importance: Importance.max,
-      priority: Priority.high,
-      enableVibration: true,
-      category: AndroidNotificationCategory.reminder,
-    );
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        sedentaryChannelId,
+        sedentaryChannelName,
+        channelDescription: sedentaryChannelDesc,
+        importance: Importance.max,
+        priority: Priority.high,
+        enableVibration: true,
+        icon: 'ic_notification',
+        category: AndroidNotificationCategory.reminder,
+      );
 
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: InterruptionLevel.timeSensitive,
-    );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      );
 
-    const notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
+      const notificationDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
 
-    await _notificationsPlugin.show(
-      1001,
-      'Time to move! 🚶‍♂️',
-      "You've been stationary for $minutesStationary minutes. Stretch your legs or walk for 90 seconds.",
-      notificationDetails,
-      payload: 'sedentary_alert',
-    );
+      await _notificationsPlugin.show(
+        1001,
+        'Time to move! 🚶‍♂️',
+        "You've been stationary for $minutesStationary minutes. Stretch your legs or walk for 90 seconds.",
+        notificationDetails,
+        payload: 'sedentary_alert',
+      );
+    } catch (e) {
+      debugPrint('[Notifications] Error showing sedentary alert: $e');
+    }
   }
 
   Future<void> showWalkingGoalAchieved() async {
-    const androidDetails = AndroidNotificationDetails(
-      sedentaryChannelId,
-      sedentaryChannelName,
-      channelDescription: sedentaryChannelDesc,
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
-    );
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        sedentaryChannelId,
+        sedentaryChannelName,
+        channelDescription: sedentaryChannelDesc,
+        importance: Importance.defaultImportance,
+        priority: Priority.defaultPriority,
+        icon: 'ic_notification',
+      );
 
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentSound: false,
-    );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentSound: false,
+      );
 
-    const notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
+      const notificationDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
 
-    await _notificationsPlugin.show(
-      1002,
-      'Great job! Activity detected ✨',
-      'Sedentary timer reset after active movement.',
-      notificationDetails,
-      payload: 'walking_reset',
-    );
+      await _notificationsPlugin.show(
+        1002,
+        'Great job! Activity detected ✨',
+        'Sedentary timer reset after active movement.',
+        notificationDetails,
+        payload: 'walking_reset',
+      );
+    } catch (e) {
+      debugPrint('[Notifications] Error showing walking goal: $e');
+    }
   }
 
   Future<void> showSleepSummary({
@@ -145,30 +160,35 @@ class NotificationService {
     required double durationHours,
     required int deepPercent,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
-      sleepChannelId,
-      sleepChannelName,
-      channelDescription: sleepChannelDesc,
-      importance: Importance.high,
-      priority: Priority.high,
-    );
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        sleepChannelId,
+        sleepChannelName,
+        channelDescription: sleepChannelDesc,
+        importance: Importance.high,
+        priority: Priority.high,
+        icon: 'ic_notification',
+      );
 
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentSound: true,
-    );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentSound: true,
+      );
 
-    const notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
+      const notificationDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
 
-    await _notificationsPlugin.show(
-      2001,
-      'Morning Recovery Score: $recoveryScore / 100 🌙',
-      'Slept ${durationHours.toStringAsFixed(1)} hrs with $deepPercent% deep sleep. Check your full breakdown.',
-      notificationDetails,
-      payload: 'sleep_summary',
-    );
+      await _notificationsPlugin.show(
+        2001,
+        'Morning Recovery Score: $recoveryScore / 100 🌙',
+        'Slept ${durationHours.toStringAsFixed(1)} hrs with $deepPercent% deep sleep. Check your full breakdown.',
+        notificationDetails,
+        payload: 'sleep_summary',
+      );
+    } catch (e) {
+      debugPrint('[Notifications] Error showing sleep summary: $e');
+    }
   }
 }

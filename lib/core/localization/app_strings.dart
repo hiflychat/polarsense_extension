@@ -74,6 +74,11 @@ class AppStrings {
   String get disconnect => isZh ? '断开连接' : 'Disconnect';
   String get connect => isZh ? '连接' : 'Connect';
   String get forgetDevice => isZh ? '解除配对' : 'Forget Device';
+  String get bluetoothPermissionPrompt => isZh
+      ? '需要授予蓝牙和定位权限才能连接手环'
+      : 'Bluetooth permissions required to connect to sensor';
+  String get grantPermission => isZh ? '去授权' : 'Grant';
+  String get bluetoothDisabled => isZh ? '手机蓝牙未开启，请先开启蓝牙' : 'Bluetooth is turned off. Please enable Bluetooth.';
   String get discoveredDevices => isZh ? '发现的 Polar 设备' : 'Discovered Polar Devices';
   String get realtimeTelemetry => isZh ? '实时传感器遥测' : 'Real-Time Sensor Telemetry';
   String get sensorBattery => isZh ? '传感器电量' : 'Sensor Battery';

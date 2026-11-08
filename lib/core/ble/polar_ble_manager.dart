@@ -99,6 +99,42 @@ class PolarBleManager {
   bool _mockIsWalking = false;
   int _reconnectAttempts = 0;
   bool _intentionalDisconnect = false;
+  bool _isStartingStreams = false;
+
+  /// Safely check whether required Bluetooth runtime permissions have been granted
+  static Future<bool> hasBlePermissions() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+
+    try {
+      final connectGranted = await Permission.bluetoothConnect.isGranted;
+      final scanGranted = await Permission.bluetoothScan.isGranted;
+      return connectGranted && scanGranted;
+    } catch (e) {
+      debugPrint('[BLE] Error checking permissions: $e');
+      return false;
+    }
+  }
+
+  /// Request Bluetooth runtime permissions from user
+  static Future<bool> requestBlePermissions() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+
+    try {
+      final statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.location,
+        Permission.notification,
+      ].request();
+
+      final connectGranted = statuses[Permission.bluetoothConnect]?.isGranted ?? true;
+      final scanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? true;
+      return connectGranted && scanGranted;
+    } catch (e) {
+      debugPrint('[BLE] Error requesting permissions: $e');
+      return false;
+    }
+  }
 
   PolarBleManager() {
     _initPolarListeners();
@@ -116,11 +152,11 @@ class PolarBleManager {
       final name = _discoveredDevices[info.deviceId]?.name ?? _pairedDeviceName ?? 'Polar Verity Sense';
       savePairedDevice(info.deviceId, name);
 
-      // Start streaming with a short delay to allow GATT service discovery to finalize
-      Future.delayed(const Duration(milliseconds: 1200), () {
-        if (_connectedDeviceId == info.deviceId) {
+      // Safety fallback: if feature readiness callback is delayed, start streams after GATT stabilizes
+      Future.delayed(const Duration(milliseconds: 3500), () {
+        if (_connectedDeviceId == info.deviceId && _connectionState == BleConnectionState.connected) {
+          debugPrint('[BLE] Feature readiness timeout fallback -> starting sensor streams');
           _startSensorStreams(info.deviceId);
-          checkOfflineRecordingStatus();
         }
       });
     });
@@ -132,6 +168,7 @@ class PolarBleManager {
       _batteryLevel = null;
       _currentHr = null;
       _isOfflineRecording = false;
+      _isStartingStreams = false;
       _offlineRecordingController.add(false);
       _cancelStreams();
 
@@ -148,12 +185,18 @@ class PolarBleManager {
 
     _featuresReadinessSub = _polar.sdkFeaturesReadiness.listen((event) {
       debugPrint('[BLE] SDK Features readiness: ${event.ready} for ${event.identifier}');
-      _startSensorStreams(event.identifier);
+      if (event.identifier == _connectedDeviceId &&
+          event.ready.contains(PolarSdkFeature.onlineStreaming)) {
+        _startSensorStreams(event.identifier);
+      }
     });
 
     _featureReadySub = _polar.sdkFeatureReady.listen((event) {
       debugPrint('[BLE] SDK Feature ready: ${event.feature} on ${event.identifier}');
-      _startSensorStreams(event.identifier);
+      if (event.identifier == _connectedDeviceId &&
+          event.feature == PolarSdkFeature.onlineStreaming) {
+        _startSensorStreams(event.identifier);
+      }
     });
   }
 
@@ -166,12 +209,17 @@ class PolarBleManager {
       if (_pairedDeviceId != null &&
           _connectionState == BleConnectionState.disconnected &&
           !_isMockMode) {
-        debugPrint('[BLE] Initiating background auto-connect to $_pairedDeviceId');
-        Future.delayed(const Duration(milliseconds: 1200), () {
-          if (_connectionState == BleConnectionState.disconnected && !_intentionalDisconnect) {
-            connectToDevice(_pairedDeviceId!, deviceName: _pairedDeviceName);
-          }
-        });
+        final hasPerms = await hasBlePermissions();
+        if (hasPerms) {
+          debugPrint('[BLE] Permissions verified, auto-connecting to $_pairedDeviceId');
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            if (_connectionState == BleConnectionState.disconnected && !_intentionalDisconnect) {
+              connectToDevice(_pairedDeviceId!, deviceName: _pairedDeviceName);
+            }
+          });
+        } else {
+          debugPrint('[BLE] Permissions not yet granted, skipping startup auto-connect');
+        }
       }
     } catch (e) {
       debugPrint('[BLE] Error loading paired device: $e');
@@ -244,31 +292,35 @@ class PolarBleManager {
       return;
     }
 
+    // Check & request Bluetooth permissions first
+    final hasPerms = await requestBlePermissions();
+    if (!hasPerms) {
+      debugPrint('[BLE] Search aborted: Bluetooth permissions not granted');
+      _updateState(BleConnectionState.disconnected);
+      return;
+    }
+
     _discoveredDevices.clear();
     _updateState(BleConnectionState.scanning);
 
     try {
-      if (!kIsWeb && Platform.isAndroid) {
-        await [
-          Permission.bluetoothScan,
-          Permission.bluetoothConnect,
-          Permission.location,
-        ].request();
-      }
-    } catch (e) {
-      debugPrint('[BLE] Permission request error: $e');
-    }
-
-    try {
-      final searchSub = _polar.searchForDevice().listen((deviceInfo) {
-        _discoveredDevices[deviceInfo.deviceId] = DiscoveredDevice(
-          deviceId: deviceInfo.deviceId,
-          name: deviceInfo.name.isNotEmpty ? deviceInfo.name : 'Polar Verity Sense',
-          rssi: deviceInfo.rssi,
-          isConnectable: deviceInfo.isConnectable,
-        );
-        _discoveredDevicesController.add(_discoveredDevices.values.toList());
-      });
+      final searchSub = _polar.searchForDevice().listen(
+        (deviceInfo) {
+          _discoveredDevices[deviceInfo.deviceId] = DiscoveredDevice(
+            deviceId: deviceInfo.deviceId,
+            name: deviceInfo.name.isNotEmpty ? deviceInfo.name : 'Polar Verity Sense',
+            rssi: deviceInfo.rssi,
+            isConnectable: deviceInfo.isConnectable,
+          );
+          _discoveredDevicesController.add(_discoveredDevices.values.toList());
+        },
+        onError: (err) {
+          debugPrint('[BLE] Search stream error: $err');
+          if (_connectionState == BleConnectionState.scanning) {
+            _updateState(BleConnectionState.disconnected);
+          }
+        },
+      );
 
       Future.delayed(timeout, () {
         searchSub.cancel();
@@ -282,12 +334,8 @@ class PolarBleManager {
     }
   }
 
-  Future<void> connectToDevice(String deviceId, {String? deviceName}) async {
+  Future<bool> connectToDevice(String deviceId, {String? deviceName}) async {
     _intentionalDisconnect = false;
-    _updateState(BleConnectionState.connecting);
-
-    final name = deviceName ?? _discoveredDevices[deviceId]?.name ?? _pairedDeviceName ?? 'Polar Verity Sense';
-    await savePairedDevice(deviceId, name);
 
     if (_isMockMode) {
       _connectedDeviceId = deviceId;
@@ -295,21 +343,30 @@ class PolarBleManager {
       _currentHr = 72;
       _updateState(BleConnectionState.connected);
       _startMockStreaming();
-      return;
+      return true;
     }
 
+    // Check & request Bluetooth permissions before touching native stack
+    final hasPerms = await requestBlePermissions();
+    if (!hasPerms) {
+      debugPrint('[BLE] Connect aborted: Bluetooth permissions not granted');
+      _updateState(BleConnectionState.disconnected);
+      return false;
+    }
+
+    _updateState(BleConnectionState.connecting);
+
+    final name = deviceName ?? _discoveredDevices[deviceId]?.name ?? _pairedDeviceName ?? 'Polar Verity Sense';
+    await savePairedDevice(deviceId, name);
+
     try {
+      debugPrint('[BLE] Connecting to Polar device: $deviceId');
       await _polar.connectToDevice(deviceId);
-      // Fallback check: also start streaming after a short delay
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (_connectionState == BleConnectionState.connected ||
-            _connectionState == BleConnectionState.streaming) {
-          _startSensorStreams(deviceId);
-        }
-      });
+      return true;
     } catch (e) {
       debugPrint('[BLE] Connection error: $e');
       _updateState(BleConnectionState.disconnected);
+      return false;
     }
   }
 
@@ -336,6 +393,7 @@ class PolarBleManager {
     _connectedDeviceId = null;
     _batteryLevel = null;
     _currentHr = null;
+    _isStartingStreams = false;
     _updateState(BleConnectionState.disconnected);
   }
 
@@ -351,86 +409,111 @@ class PolarBleManager {
 
     Timer(delay, () async {
       if (!_intentionalDisconnect && _connectionState == BleConnectionState.disconnected) {
-        debugPrint('[BLE] Reconnecting to $deviceId...');
-        await connectToDevice(deviceId);
+        final hasPerms = await hasBlePermissions();
+        if (hasPerms) {
+          debugPrint('[BLE] Auto-reconnecting to $deviceId...');
+          await connectToDevice(deviceId);
+        }
       }
     });
   }
 
   Future<void> _startSensorStreams(String deviceId) async {
-    _updateState(BleConnectionState.streaming);
+    if (_isStartingStreams || _connectedDeviceId != deviceId) return;
+    _isStartingStreams = true;
 
-    // 1. Heart Rate Stream (Optical HR & standard BLE HR)
-    if (_hrSub == null) {
+    try {
+      debugPrint('[BLE] Querying available online streams for $deviceId');
+      Set<PolarDataType> availableTypes = {};
       try {
-        debugPrint('[BLE] Starting HR stream for $deviceId');
-        _hrSub = _polar.startHrStreaming(deviceId).listen(
-          (hrData) {
-            for (final sample in hrData.samples) {
-              if (sample.hr > 0) {
-                _currentHr = sample.hr;
-                _hrStreamController.add(sample.hr);
+        availableTypes = await _polar.getAvailableOnlineStreamDataTypes(deviceId);
+        debugPrint('[BLE] Available types: $availableTypes');
+      } catch (e) {
+        debugPrint('[BLE] getAvailableOnlineStreamDataTypes fallback: $e');
+        availableTypes = {PolarDataType.hr, PolarDataType.ppi, PolarDataType.acc};
+      }
+
+      // 1. Heart Rate Stream (Optical HR & standard BLE HR)
+      if (availableTypes.contains(PolarDataType.hr) && _hrSub == null) {
+        try {
+          debugPrint('[BLE] Starting HR stream for $deviceId');
+          _hrSub = _polar.startHrStreaming(deviceId).listen(
+            (hrData) {
+              for (final sample in hrData.samples) {
+                if (sample.hr > 0) {
+                  _currentHr = sample.hr;
+                  _hrStreamController.add(sample.hr);
+                }
               }
-            }
-          },
-          onError: (err) {
-            debugPrint('[BLE] HR stream error: $err');
-            _hrSub?.cancel();
-            _hrSub = null;
-          },
-        );
-      } catch (e) {
-        debugPrint('[BLE] Error starting HR stream: $e');
-        _hrSub = null;
+            },
+            onError: (err) {
+              debugPrint('[BLE] HR stream error: $err');
+              _hrSub?.cancel();
+              _hrSub = null;
+            },
+          );
+        } catch (e) {
+          debugPrint('[BLE] Error starting HR stream: $e');
+          _hrSub = null;
+        }
       }
-    }
 
-    // 2. Optical Heart Rate PPI Stream (Pulse-to-Pulse intervals with instantaneous HR)
-    if (_ppiSub == null) {
-      try {
-        debugPrint('[BLE] Starting PPI stream for $deviceId');
-        _ppiSub = _polar.startPpiStreaming(deviceId).listen(
-          (ppiData) {
-            _ppiStreamController.add(ppiData);
-            for (final sample in ppiData.samples) {
-              if (sample.hr > 0) {
-                _currentHr = sample.hr;
-                _hrStreamController.add(sample.hr);
+      // 2. Optical Heart Rate PPI Stream (Pulse-to-Pulse intervals with instantaneous HR)
+      if (availableTypes.contains(PolarDataType.ppi) && _ppiSub == null) {
+        try {
+          debugPrint('[BLE] Starting PPI stream for $deviceId');
+          _ppiSub = _polar.startPpiStreaming(deviceId).listen(
+            (ppiData) {
+              _ppiStreamController.add(ppiData);
+              for (final sample in ppiData.samples) {
+                if (sample.hr > 0) {
+                  _currentHr = sample.hr;
+                  _hrStreamController.add(sample.hr);
+                }
               }
-            }
-          },
-          onError: (err) {
-            debugPrint('[BLE] PPI stream error: $err');
-            _ppiSub?.cancel();
-            _ppiSub = null;
-          },
-        );
-      } catch (e) {
-        debugPrint('[BLE] Error starting PPI stream: $e');
-        _ppiSub = null;
+            },
+            onError: (err) {
+              debugPrint('[BLE] PPI stream error: $err');
+              _ppiSub?.cancel();
+              _ppiSub = null;
+            },
+          );
+        } catch (e) {
+          debugPrint('[BLE] Error starting PPI stream: $e');
+          _ppiSub = null;
+        }
       }
-    }
 
-    // 3. Accelerometer Stream (Automatic device capability negotiation)
-    if (_accSub == null) {
-      try {
-        debugPrint('[BLE] Starting ACC stream for $deviceId (auto capability negotiation)');
-        _accSub = _polar.startAccStreaming(deviceId).listen(
-          (data) {
-            _accStreamController.add(data);
-          },
-          onError: (err) {
-            debugPrint('[BLE] Auto ACC error: $err, falling back to explicit 52Hz');
-            _accSub?.cancel();
-            _accSub = null;
-            _startDefaultAccStream(deviceId);
-          },
-        );
-      } catch (e) {
-        debugPrint('[BLE] Error starting ACC stream: $e, falling back to explicit 52Hz');
-        _accSub = null;
-        _startDefaultAccStream(deviceId);
+      // 3. Accelerometer Stream (Automatic device capability negotiation)
+      if (availableTypes.contains(PolarDataType.acc) && _accSub == null) {
+        try {
+          debugPrint('[BLE] Requesting ACC settings for $deviceId');
+          final settings = await _polar.requestStreamSettings(deviceId, PolarDataType.acc);
+          final maxSettings = settings.maxSettings();
+          debugPrint('[BLE] Starting ACC with maxSettings: ${maxSettings.settings}');
+
+          _accSub = _polar.startAccStreaming(deviceId, settings: maxSettings).listen(
+            (data) {
+              _accStreamController.add(data);
+            },
+            onError: (err) {
+              debugPrint('[BLE] Auto ACC error: $err, falling back to explicit 52Hz');
+              _accSub?.cancel();
+              _accSub = null;
+              _startDefaultAccStream(deviceId);
+            },
+          );
+        } catch (e) {
+          debugPrint('[BLE] Error getting ACC settings: $e, falling back to explicit 52Hz');
+          _startDefaultAccStream(deviceId);
+        }
       }
+
+      _updateState(BleConnectionState.streaming);
+    } catch (e) {
+      debugPrint('[BLE] Error in _startSensorStreams: $e');
+    } finally {
+      _isStartingStreams = false;
     }
   }
 
