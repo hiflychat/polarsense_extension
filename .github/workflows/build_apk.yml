@@ -58,6 +58,13 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Patch Flutter Tool Gradle Repositories
+        run: |
+          if [ -d "$FLUTTER_ROOT/packages/flutter_tools/gradle" ]; then
+            find "$FLUTTER_ROOT/packages/flutter_tools/gradle" -type f \( -name "*.kts" -o -name "*.gradle" \) -exec sed -i 's|mavenCentral()|maven("https://maven.aliyun.com/repository/public")|g' {} +
+            echo "Patched Flutter tools Gradle repositories to Aliyun mirror"
+          fi
+
       - name: Get Dependencies
         run: flutter pub get
 
