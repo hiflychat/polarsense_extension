@@ -116,9 +116,13 @@ class PolarBleManager {
       final name = _discoveredDevices[info.deviceId]?.name ?? _pairedDeviceName ?? 'Polar Verity Sense';
       savePairedDevice(info.deviceId, name);
 
-      // Start streaming immediately on connection
-      _startSensorStreams(info.deviceId);
-      checkOfflineRecordingStatus();
+      // Start streaming with a short delay to allow GATT service discovery to finalize
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (_connectedDeviceId == info.deviceId) {
+          _startSensorStreams(info.deviceId);
+          checkOfflineRecordingStatus();
+        }
+      });
     });
 
     _deviceDisconnectedSub = _polar.deviceDisconnected.listen((event) {
@@ -366,14 +370,18 @@ class PolarBleManager {
               if (sample.hr > 0) {
                 _currentHr = sample.hr;
                 _hrStreamController.add(sample.hr);
-                debugPrint('[BLE] Live HR: ${sample.hr} BPM');
               }
             }
           },
-          onError: (err) => debugPrint('[BLE] HR stream error: $err'),
+          onError: (err) {
+            debugPrint('[BLE] HR stream error: $err');
+            _hrSub?.cancel();
+            _hrSub = null;
+          },
         );
       } catch (e) {
         debugPrint('[BLE] Error starting HR stream: $e');
+        _hrSub = null;
       }
     }
 
@@ -391,46 +399,62 @@ class PolarBleManager {
               }
             }
           },
-          onError: (err) => debugPrint('[BLE] PPI stream error: $err'),
+          onError: (err) {
+            debugPrint('[BLE] PPI stream error: $err');
+            _ppiSub?.cancel();
+            _ppiSub = null;
+          },
         );
       } catch (e) {
         debugPrint('[BLE] Error starting PPI stream: $e');
+        _ppiSub = null;
       }
     }
 
-    // 3. Accelerometer Stream (26 Hz)
+    // 3. Accelerometer Stream (Automatic device capability negotiation)
     if (_accSub == null) {
       try {
-        debugPrint('[BLE] Starting ACC stream for $deviceId');
-        _accSub = _polar.startAccStreaming(
-          deviceId,
-          settings: PolarSensorSetting({
-            PolarSettingType.sampleRate: PolarConstants.accSampleRate,
-            PolarSettingType.range: PolarConstants.accRange,
-          }),
-        ).listen(
-          (data) => _accStreamController.add(data),
+        debugPrint('[BLE] Starting ACC stream for $deviceId (auto capability negotiation)');
+        _accSub = _polar.startAccStreaming(deviceId).listen(
+          (data) {
+            _accStreamController.add(data);
+          },
           onError: (err) {
-            debugPrint('[BLE] ACC explicit settings error: $err, falling back to default stream');
+            debugPrint('[BLE] Auto ACC error: $err, falling back to explicit 52Hz');
+            _accSub?.cancel();
+            _accSub = null;
             _startDefaultAccStream(deviceId);
           },
         );
       } catch (e) {
-        debugPrint('[BLE] Error starting ACC stream: $e, falling back to default stream');
+        debugPrint('[BLE] Error starting ACC stream: $e, falling back to explicit 52Hz');
+        _accSub = null;
         _startDefaultAccStream(deviceId);
       }
     }
   }
 
   void _startDefaultAccStream(String deviceId) {
+    if (_accSub != null) return;
     try {
-      _accSub?.cancel();
-      _accSub = _polar.startAccStreaming(deviceId).listen(
+      debugPrint('[BLE] Starting explicit 52Hz ACC stream for $deviceId');
+      _accSub = _polar.startAccStreaming(
+        deviceId,
+        settings: PolarSensorSetting({
+          PolarSettingType.sampleRate: 52, // Native Polar Verity Sense rate
+          PolarSettingType.range: 8,
+        }),
+      ).listen(
         (data) => _accStreamController.add(data),
-        onError: (err) => debugPrint('[BLE] ACC default stream error: $err'),
+        onError: (err) {
+          debugPrint('[BLE] ACC default 52Hz stream error: $err');
+          _accSub?.cancel();
+          _accSub = null;
+        },
       );
     } catch (e) {
       debugPrint('[BLE] Error starting default ACC stream: $e');
+      _accSub = null;
     }
   }
 

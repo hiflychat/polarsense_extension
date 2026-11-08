@@ -1,6 +1,7 @@
 class PolarConstants {
   /// Default accelerometer sampling rate for Polar Verity Sense sedentary & sleep detection
-  static const int accSampleRate = 26;
+  /// Polar Verity Sense standard accelerometer streaming operates at 52 Hz
+  static const int accSampleRate = 52;
 
   /// Accelerometer range in G (+-8G typical for arm movement)
   static const int accRange = 8;

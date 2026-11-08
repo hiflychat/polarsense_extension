@@ -20,6 +20,7 @@ class SedentaryStatus {
   final PostureState state;
   final int alertThresholdMinutes;
   final bool hasTriggeredAlert;
+  final bool isDeviceConnected;
 
   SedentaryStatus({
     required this.sedentarySeconds,
@@ -28,9 +29,18 @@ class SedentaryStatus {
     required this.state,
     required this.alertThresholdMinutes,
     required this.hasTriggeredAlert,
+    this.isDeviceConnected = true,
   });
 
   int get sedentaryMinutes => sedentarySeconds ~/ 60;
+  int get sedentaryRemainingSeconds => sedentarySeconds % 60;
+
+  String get formattedDuration {
+    final mins = sedentaryMinutes.toString().padLeft(2, '0');
+    final secs = sedentaryRemainingSeconds.toString().padLeft(2, '0');
+    return '$mins:$secs';
+  }
+
   double get progressToAlert => (sedentarySeconds / (alertThresholdMinutes * 60)).clamp(0.0, 1.0);
   double get walkingResetProgress => (activeWalkingSeconds / 90.0).clamp(0.0, 1.0);
 }
@@ -58,10 +68,20 @@ class SedentaryEngine {
   double _lastWindowVmu = 0.0;
   PostureState _currentState = PostureState.sedentary;
   bool _hasTriggeredAlert = false;
+  bool _isDeviceConnected = false;
+  bool get isDeviceConnected => _isDeviceConnected;
+  set isDeviceConnected(bool value) {
+    if (_isDeviceConnected != value) {
+      _isDeviceConnected = value;
+      _emitStatus();
+    }
+  }
+
   DateTime? _sedentaryPeriodStart;
   DateTime? _lastAlertTime;
 
   StreamSubscription<PolarAccData>? _accSubscription;
+  Timer? _ticker;
   final _statusController = StreamController<SedentaryStatus>.broadcast();
   Stream<SedentaryStatus> get statusStream => _statusController.stream;
 
@@ -72,6 +92,7 @@ class SedentaryEngine {
     state: _currentState,
     alertThresholdMinutes: _alertThresholdMinutes,
     hasTriggeredAlert: _hasTriggeredAlert,
+    isDeviceConnected: _isDeviceConnected,
   );
 
   void start(Stream<PolarAccData> accStream) {
@@ -81,12 +102,32 @@ class SedentaryEngine {
     _vmuWindowBuffer.clear();
 
     _accSubscription = accStream.listen(_processAccData);
+
+    // Continuous 1-second ticker for real-time live seconds progression
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_isDeviceConnected) {
+        if (_currentState == PostureState.sedentary) {
+          _sedentarySeconds++;
+          _checkAlertCondition();
+        } else if (_currentState == PostureState.activeWalking) {
+          _activeWalkingSeconds++;
+          if (_activeWalkingSeconds >= walkingResetRequirementSec) {
+            _handleWalkingReset();
+          }
+        }
+        _emitStatus();
+      }
+    });
+
     _emitStatus();
   }
 
   void stop() {
     _accSubscription?.cancel();
     _accSubscription = null;
+    _ticker?.cancel();
+    _ticker = null;
     _vmuWindowBuffer.clear();
   }
 
@@ -123,27 +164,16 @@ class SedentaryEngine {
     final windowMeanVmu = _vmuWindowBuffer.reduce((a, b) => a + b) / _vmuWindowBuffer.length;
     _lastWindowVmu = windowMeanVmu;
 
-    final windowSec = _windowDuration.inSeconds;
-
     if (windowMeanVmu < sedentaryVmuThreshold) {
       // Sedentary state
       _currentState = PostureState.sedentary;
-      _sedentarySeconds += windowSec;
       _activeWalkingSeconds = 0; // Reset active continuous counter
-
-      _checkAlertCondition();
     } else if (windowMeanVmu >= walkingVmuThreshold) {
       // Active / Walking state
       _currentState = PostureState.activeWalking;
-      _activeWalkingSeconds += windowSec;
-
-      if (_activeWalkingSeconds >= walkingResetRequirementSec) {
-        _handleWalkingReset();
-      }
     } else {
       // Intermediate state (e.g. minor arm movements/typing)
       _currentState = PostureState.intermediate;
-      // Minor movements interrupt continuous walking reset counter
       _activeWalkingSeconds = 0;
     }
   }

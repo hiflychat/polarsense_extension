@@ -13,15 +13,23 @@ final sedentaryEngineProvider = Provider<SedentaryEngine>((ref) {
   final engine = SedentaryEngine();
   final bleManager = ref.watch(polarBleManagerProvider);
 
-  // Automatically start processing ACC stream when bleManager is streaming
-  final sub = bleManager.accStream.listen((data) {
-    // Engine handles sample processing
-  });
-
+  // Automatically bind ACC stream
   engine.start(bleManager.accStream);
 
+  // Sync initial connection status
+  final initialConnected = bleManager.connectionState == BleConnectionState.connected ||
+      bleManager.connectionState == BleConnectionState.streaming;
+  engine.isDeviceConnected = initialConnected;
+
+  // Reactively track BLE connection changes
+  final stateSub = bleManager.stateStream.listen((state) {
+    final connected = state == BleConnectionState.connected ||
+        state == BleConnectionState.streaming;
+    engine.isDeviceConnected = connected;
+  });
+
   ref.onDispose(() {
-    sub.cancel();
+    stateSub.cancel();
     engine.dispose();
   });
 

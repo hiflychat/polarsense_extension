@@ -28,6 +28,11 @@ class AppStrings {
       : 'You have been sedentary past your threshold. Walk to reset.';
   String get resetManually => isZh ? '手动重置' : 'Reset Timer';
   String get walkingResetTip => isZh ? '连续走动 90 秒可自动重置计时' : 'Walk for 90 seconds to auto-reset';
+  String get sedentaryStationary => isZh ? '静止坐姿' : 'Stationary';
+  String get sedentaryMovingArm => isZh ? '手臂微动' : 'Moving (Arm)';
+  String get sedentaryWalking => isZh ? '走动中' : 'Walking';
+  String get sedentaryDisconnected => isZh ? '手环未连接' : 'Sensor Disconnected';
+  String get liveMotionVmu => isZh ? '姿态动量' : 'Motion VMU';
   String get trackOvernightSleep => isZh ? '追踪夜间睡眠' : 'Track Overnight Sleep';
   String get recordsPpiRmssd => isZh
       ? '记录微秒级 PPI、RMSSD 及 30 秒睡眠分期'
