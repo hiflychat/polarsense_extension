@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PolarSense Android App Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --polar-red: #E5002B;
+      --polar-cyan: #00C7D4;
+      --dark-bg: #0D1117;
+      --dark-card: #161B22;
+      --dark-border: #30363D;
+      --wake-color: #FF6B6B;
+      --rem-color: #9D4EDD;
+      --light-color: #48CAE4;
+      --deep-color: #023E8A;
+      --recovery-optimal: #2EC4B6;
+      --recovery-good: #20BF55;
+      --recovery-mod: #FF9F1C;
+      --recovery-low: #E71D36;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background: #05070a;
+      color: #e6edf3;
+      font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .demo-header {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    .demo-header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .demo-header p {
+      font-size: 13px;
+      color: #8b949e;
+      margin-top: 4px;
+    }
+
+    .device-shell {
+      position: relative;
+      width: 412px;
+      height: 870px;
+      background: var(--dark-bg);
+      border-radius: 44px;
+      border: 8px solid #21262d;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8), 0 0 0 2px #30363d;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Android Punch Hole & Status Bar */
+    .android-status-bar {
+      height: 38px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      z-index: 100;
+      background: rgba(13, 17, 23, 0.95);
+    }
+
+    .punch-hole {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 13px;
+      height: 13px;
+      background: #000;
+      border-radius: 50%;
+      border: 1px solid #1a1a1a;
+      z-index: 101;
+    }
+
+    .status-icons {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    /* Android Heads-up Notification */
+    .android-notification {
+      position: absolute;
+      top: -120px;
+      left: 12px;
+      right: 12px;
+      background: #1c2128;
+      border: 1px solid #444c56;
+      border-radius: 20px;
+      padding: 14px 16px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.7);
+      z-index: 200;
+      transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      cursor: pointer;
+    }
+
+    .android-notification.show {
+      transform: translateY(160px);
+    }
+
+    .notif-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 4px;
+    }
+
+    .notif-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 2px;
+    }
+
+    .notif-body {
+      font-size: 12px;
+      color: #c9d1d9;
+      line-height: 1.4;
+    }
+
+    /* App Appbar */
+    .appbar {
+      height: 56px;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--dark-border);
+      background: var(--dark-bg);
+    }
+
+    .app-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.3px;
+    }
+
+    .pulse-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0, 199, 212, 0.12);
+      border: 1px solid rgba(0, 199, 212, 0.4);
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .heart-beat {
+      color: var(--polar-red);
+      animation: pulse 1s infinite alternate;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.9); }
+      100% { transform: scale(1.2); }
+    }
+
+    /* Tab Content Area */
+    .screen-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tab-page {
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tab-page.active {
+      display: flex;
+    }
+
+    /* Card styling */
+    .card {
+      background: var(--dark-card);
+      border: 1px solid var(--dark-border);
+      border-radius: 16px;
+      padding: 16px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    /* Sedentary UI */
+    .sedentary-big-stat {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin: 8px 0;
+    }
+
+    .stat-number {
+      font-size: 46px;
+      font-weight: 900;
+      color: var(--polar-cyan);
+      line-height: 1;
+    }
+
+    .stat-unit {
+      font-size: 16px;
+      color: #8b949e;
+      font-weight: 600;
+    }
+
+    .progress-bar-bg {
+      height: 10px;
+      background: var(--dark-border);
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--polar-cyan);
+      width: 65%;
+      border-radius: 6px;
+      transition: width 0.4s ease, background-color 0.3s;
+    }
+
+    .walking-progress-bg {
+      height: 6px;
+      background: var(--dark-border);
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 6px 0;
+    }
+
+    .walking-progress-fill {
+      height: 100%;
+      background: var(--recovery-good);
+      width: 0%;
+      border-radius: 4px;
+      transition: width 0.2s ease;
+    }
+
+    .state-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .badge-sedentary { background: rgba(90, 105, 120, 0.2); color: #8b949e; border: 1px solid #444c56; }
+    .badge-fidget { background: rgba(255, 159, 28, 0.2); color: #ff9f1c; border: 1px solid #ff9f1c; }
+    .badge-walking { background: rgba(32, 191, 85, 0.2); color: #20bf55; border: 1px solid #20bf55; }
+
+    /* Interactive Simulator Controls */
+    .sim-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .btn {
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid var(--dark-border);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s;
+      background: #21262d;
+      color: #fff;
+    }
+
+    .btn:hover {
+      background: #30363d;
+    }
+
+    .btn-primary {
+      background: var(--polar-cyan);
+      color: #000;
+      border-color: var(--polar-cyan);
+    }
+    .btn-primary:hover { background: #33d4df; }
+
+    .btn-alert {
+      background: rgba(229, 0, 43, 0.15);
+      border-color: var(--polar-red);
+      color: #ff6b6b;
+    }
+
+    .btn-active {
+      border-color: var(--recovery-good);
+      background: rgba(32, 191, 85, 0.2);
+      color: #20bf55;
+    }
+
+    /* Recovery Gauge (Canvas) */
+    .gauge-container {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 8px 0;
+    }
+
+    .gauge-canvas-wrapper {
+      position: relative;
+      width: 130px;
+      height: 130px;
+    }
+
+    .gauge-score-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -55%);
+      text-align: center;
+    }
+
+    .gauge-score-number {
+      font-size: 34px;
+      font-weight: 900;
+      color: #fff;
+      line-height: 1;
+    }
+
+    .gauge-score-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--recovery-optimal);
+      letter-spacing: 1px;
+      margin-top: 2px;
+    }
+
+    /* Sleep Hypnogram Canvas */
+    .hypnogram-canvas {
+      width: 100%;
+      height: 150px;
+      background: #0d1117;
+      border-radius: 10px;
+      display: block;
+    }
+
+    /* Multi-segment Stage Bar */
+    .stage-bar {
+      display: flex;
+      height: 12px;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+
+    .stage-seg { height: 100%; }
+
+    /* Bottom Android Navigation */
+    .bottom-nav {
+      height: 64px;
+      background: var(--dark-card);
+      border-top: 1px solid var(--dark-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding-bottom: 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #8b949e;
+      cursor: pointer;
+      flex: 1;
+      padding: 6px 0;
+      transition: color 0.2s;
+    }
+
+    .nav-item.active {
+      color: var(--polar-cyan);
+      font-weight: 700;
+    }
+
+    .nav-item svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    /* Android Home Gesture Bar */
+    .android-nav-bar {
+      height: 16px;
+      background: var(--dark-card);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .home-pill {
+      width: 72px;
+      height: 4px;
+      background: #484f58;
+      border-radius: 2px;
+    }
+
+    .oscilloscope-canvas {
+      width: 100%;
+      height: 100px;
+      background: #090d12;
+      border-radius: 8px;
+      border: 1px solid #21262d;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="demo-header">
+    <h1>📱 PolarSense Android App Demo</h1>
+    <p>Polar Verity Sense 久坐提醒与睡眠恢复评估交互式真机模拟器</p>
+  </div>
+
+  <div class="device-shell">
+    <!-- Punch Hole Camera -->
+    <div class="punch-hole"></div>
+
+    <!-- Android Status Bar -->
+    <div class="android-status-bar">
+      <span id="androidTime">09:41</span>
+      <div class="status-icons">
+        <span>5G</span>
+        <span>•</span>
+        <span>BLE</span>
+        <span>95%</span>
+      </div>
+    </div>
+
+    <!-- Android Heads-up Alert Notification -->
+    <div class="android-notification" id="headsUpNotif" onclick="dismissNotification()">
+      <div class="notif-header">
+        <span>POLARSENSE • 刚刚</span>
+        <span style="cursor:pointer">✕</span>
+      </div>
+      <div class="notif-title">🚶‍♂️ 站起来活动一下！</div>
+      <div class="notif-body">您已连续静坐 45 分钟。站立行走或活动 90 秒即可重置久坐计时。</div>
+    </div>
+
+    <!-- App Top Bar -->
+    <div class="appbar">
+      <span class="app-title">PolarSense</span>
+      <div class="pulse-pill">
+        <span class="heart-beat">♥</span>
+        <span id="liveBpmText">68 BPM</span>
+      </div>
+    </div>
+
+    <!-- Main Screens Content -->
+    <div class="screen-content">
+
+      <!-- TAB 1: HOME SCREEN -->
+      <div class="tab-page active" id="tab-home">
+        <!-- Sedentary Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>久坐状态监测</span>
+            <span class="state-badge badge-sedentary" id="postureBadge">● 静止坐姿</span>
+          </div>
+
+          <div class="sedentary-big-stat">
+            <span class="stat-number" id="sedentaryMins">42</span>
+            <span class="stat-unit">/ 45 分钟</span>
+          </div>
+
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="sedentaryProgressBar" style="width: 93%;"></div>
+          </div>
+
+          <div id="walkingResetBox" style="display:none; margin-top: 8px;">
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:#8b949e;">
+              <span>快走重置计时 (VMU ≥ 0.15g)</span>
+              <span id="walkingSecsText" style="color:var(--recovery-good); font-weight:bold;">0 / 90 秒</span>
+            </div>
+            <div class="walking-progress-bg">
+              <div class="walking-progress-fill" id="walkingProgressFill"></div>
+            </div>
+          </div>
+
+          <div style="font-size:11px; color:#8b949e; margin-top:8px;" id="sedentaryTip">
+            手臂传感器连续 90 秒检测到快走摆臂即可清零久坐警报。
+          </div>
+        </div>
+
+        <!-- Simulation Test Buttons -->
+        <div class="card" style="background:#131822; border-color:#2a3346;">
+          <div class="card-title" style="font-size:13px; color:#58a6ff;">
+            <span>🧪 传感器姿态模拟调试 (Demo Controls)</span>
+          </div>
+          <div class="sim-buttons">
+            <button class="btn btn-active" id="btnSit" onclick="setSimulationState('sit')">静止坐姿 (&lt;0.04g)</button>
+            <button class="btn" id="btnWalk" onclick="setSimulationState('walk')">连续快走 (≥0.15g)</button>
+            <button class="btn btn-alert" onclick="fastForwardAlert()">快进到 45m 警报</button>
+            <button class="btn" onclick="resetSedentaryTimer()">手动清零重置</button>
+          </div>
+        </div>
+
+        <!-- Quick Sleep Tracking Toggle -->
+        <div class="card">
+          <div class="card-title">
+            <span>夜间睡眠追踪</span>
+            <button class="btn btn-primary" id="btnSleepToggle" onclick="toggleSleepTracking()" style="padding:6px 14px;">
+              开始监测
+            </button>
+          </div>
+          <div style="font-size:12px; color:#8b949e;">
+            佩戴 Polar Verity Sense 入睡，记录 26Hz 体动与 PPI 脉搏间隔，清晨自动评估睡眠分期与 HRV 恢复分。
+          </div>
+        </div>
+
+        <!-- Last Night Recovery Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>昨夜恢复评估</span>
+            <span style="font-size:11px; color:var(--recovery-optimal); font-weight:bold;">良好恢复</span>
+          </div>
+          <div class="gauge-container">
+            <div class="gauge-canvas-wrapper">
+              <canvas id="homeGaugeCanvas" width="130" height="130"></canvas>
+              <div class="gauge-score-text">
+                <div class="gauge-score-number">86</div>
+                <div class="gauge-score-label">RECOVERY</div>
+              </div>
+            </div>
+            <div style="flex:1; display:flex; flex-direction:column; gap:6px; font-size:12px;">
+              <div style="display:flex; justify-content:space-between;">
+                <span style="color:#8b949e;">睡眠时长</span>
+                <span style="font-weight:bold; color:#fff;">7.8 小时</span>
+              </div>
+              <div style="display:flex; justify-content:space-between;">
+                <span style="color:#8b949e;">静息心率 (RHR)</span>
+                <span style="font-weight:bold; color:#fff;">56 bpm</span>
+              </div>
+              <div style="display:flex; justify-content:space-between;">
+                <span style="color:#8b949e;">夜间 HRV (RMSSD)</span>
+                <span style="font-weight:bold; color:#fff;">54 ms</span>
+              </div>
+              <div style="display:flex; justify-content:space-between;">
+                <span style="color:#8b949e;">深睡 + REM 比例</span>
+                <span style="font-weight:bold; color:var(--recovery-optimal);">43% (优)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: SLEEP SCREEN -->
+      <div class="tab-page" id="tab-sleep">
+        <!-- Recovery Score Breakdown -->
+        <div class="card">
+          <div class="card-title">
+            <span>晨间恢复综合评分</span>
+            <span style="font-size:12px; color:var(--polar-cyan);">86 / 100</span>
+          </div>
+          <div class="gauge-container">
+            <div class="gauge-canvas-wrapper">
+              <canvas id="sleepGaugeCanvas" width="130" height="130"></canvas>
+              <div class="gauge-score-text">
+                <div class="gauge-score-number">86</div>
+                <div class="gauge-score-label">OPTIMAL</div>
+              </div>
+            </div>
+            <div style="flex:1; display:flex; flex-direction:column; gap:8px; font-size:11px;">
+              <div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                  <span style="color:#8b949e;">睡眠时长权重 (30%)</span>
+                  <span style="color:#fff; font-weight:bold;">100 / 100</span>
+                </div>
+                <div style="height:4px; background:#21262d; border-radius:2px;"><div style="width:100%; height:100%; background:var(--recovery-good); border-radius:2px;"></div></div>
+              </div>
+              <div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                  <span style="color:#8b949e;">深睡+REM 恢复结构 (30%)</span>
+                  <span style="color:#fff; font-weight:bold;">98 / 100</span>
+                </div>
+                <div style="height:4px; background:#21262d; border-radius:2px;"><div style="width:98%; height:100%; background:var(--recovery-good); border-radius:2px;"></div></div>
+              </div>
+              <div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                  <span style="color:#8b949e;">HRV / 自主神经指数 (40%)</span>
+                  <span style="color:#fff; font-weight:bold;">78 / 100</span>
+                </div>
+                <div style="height:4px; background:#21262d; border-radius:2px;"><div style="width:78%; height:100%; background:var(--recovery-mod); border-radius:2px;"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hypnogram Step Chart -->
+        <div class="card">
+          <div class="card-title">
+            <span>Hypnogram 睡眠分期阶梯图</span>
+            <div style="display:flex; gap:6px; font-size:9px;">
+              <span style="color:var(--wake-color);">● 清醒</span>
+              <span style="color:var(--rem-color);">● REM</span>
+              <span style="color:var(--light-color);">● 浅睡</span>
+              <span style="color:var(--deep-color);">● 深睡</span>
+            </div>
+          </div>
+          <canvas class="hypnogram-canvas" id="hypnogramCanvas" width="360" height="150"></canvas>
+          <div style="display:flex; justify-content:space-between; font-size:10px; color:#8b949e; margin-top:6px;">
+            <span>23:30</span>
+            <span>01:30</span>
+            <span>03:30</span>
+            <span>05:30</span>
+            <span>07:20</span>
+          </div>
+        </div>
+
+        <!-- Stage Distribution -->
+        <div class="card">
+          <div class="card-title">
+            <span>分期时长分布</span>
+            <span style="font-size:12px; color:#8b949e;">总计 7h 48m</span>
+          </div>
+          <div class="stage-bar">
+            <div class="stage-seg" style="width: 20%; background: var(--deep-color);"></div>
+            <div class="stage-seg" style="width: 48%; background: var(--light-color);"></div>
+            <div class="stage-seg" style="width: 22%; background: var(--rem-color);"></div>
+            <div class="stage-seg" style="width: 10%; background: var(--wake-color);"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:8px;">
+            <div><span style="color:var(--deep-color); font-weight:bold;">深睡</span>: 94m (20%)</div>
+            <div><span style="color:var(--light-color); font-weight:bold;">浅睡</span>: 225m (48%)</div>
+            <div><span style="color:var(--rem-color); font-weight:bold;">REM</span>: 103m (22%)</div>
+            <div><span style="color:var(--wake-color); font-weight:bold;">清醒</span>: 46m (10%)</div>
+          </div>
+        </div>
+
+        <!-- Sync Button -->
+        <button class="btn btn-primary" onclick="syncHealthData()" style="padding:12px;">
+          ✓ 同步至 Apple HealthKit / Google Health Connect
+        </button>
+      </div>
+
+      <!-- TAB 3: SENSOR SCREEN -->
+      <div class="tab-page" id="tab-sensor">
+        <!-- Sensor Connection -->
+        <div class="card">
+          <div class="card-title">
+            <span>Polar Verity Sense</span>
+            <span style="font-size:11px; color:var(--recovery-good);">已连接 (Streaming)</span>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; font-size:12px;">
+            <div>
+              <div style="color:#fff; font-weight:bold;">POLAR-MOCK-7A99</div>
+              <div style="color:#8b949e; font-size:11px;">信号: -58 dBm • 固件 2.1.0</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="color:var(--recovery-good); font-weight:bold;">电量 94%</div>
+              <div style="color:#8b949e; font-size:11px;">采样率 26 Hz</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time 26Hz ACC Oscilloscope -->
+        <div class="card">
+          <div class="card-title">
+            <span>实时 26 Hz 加速度 VMU 波形</span>
+            <span id="currentVmuBadge" style="font-size:11px; color:var(--polar-cyan);">0.02g</span>
+          </div>
+          <canvas class="oscilloscope-canvas" id="vmuWaveCanvas" width="360" height="100"></canvas>
+          <div style="display:flex; justify-content:space-between; font-size:10px; color:#8b949e; margin-top:6px;">
+            <span>VMU = |√(x²+y²+z²) - 1.0g|</span>
+            <span>静坐阈值: &lt;0.04g | 行走: ≥0.15g</span>
+          </div>
+        </div>
+
+        <!-- Telemetry Stats -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="card">
+            <div style="font-size:11px; color:#8b949e;">脉搏间隔 (PPI)</div>
+            <div style="font-size:22px; font-weight:bold; color:#fff; margin-top:4px;" id="ppiStatText">882 ms</div>
+            <div style="font-size:10px; color:var(--recovery-good);">BlockerBit: False (Clean)</div>
+          </div>
+          <div class="card">
+            <div style="font-size:11px; color:#8b949e;">瞬时心率 (HR)</div>
+            <div style="font-size:22px; font-weight:bold; color:var(--polar-red); margin-top:4px;" id="hrStatText">68 BPM</div>
+            <div style="font-size:10px; color:#8b949e;">光电容积脉搏波</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: SETTINGS SCREEN -->
+      <div class="tab-page" id="tab-settings">
+        <div class="card">
+          <div class="card-title">久坐阈值设置</div>
+          <div style="font-size:12px; color:#8b949e; margin-bottom:12px;">静坐时间达到设定阈值时触发本地通知与震动提示：</div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" style="flex:1;" onclick="setAlertThreshold(30, this)">30 分钟</button>
+            <button class="btn btn-primary" style="flex:1;" onclick="setAlertThreshold(45, this)">45 分钟</button>
+            <button class="btn" style="flex:1;" onclick="setAlertThreshold(60, this)">60 分钟</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">后台运行保活</div>
+          <div style="font-size:12px; color:#8b949e;">
+            Android 前台服务 (Foreground Service) 运行中，确保锁屏或夜间睡眠时不被系统中断。
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">关于应用</div>
+          <div style="font-size:12px; color:#8b949e; line-height:1.6;">
+            <strong>PolarSense Extension</strong> v1.0.0<br>
+            基于 Flutter + Polar BLE SDK 7.11.0 扩展，为 Polar Verity Sense 带来久坐提醒与专业睡眠分期分析。
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Android Bottom Navigation Bar -->
+    <div class="bottom-nav">
+      <div class="nav-item active" onclick="switchTab('home', this)">
+        <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span>看板</span>
+      </div>
+      <div class="nav-item" onclick="switchTab('sleep', this)">
+        <svg viewBox="0 0 24 24"><path d="M12.3 2a10 10 0 0 0-1.9 20 10 10 0 0 0 8.5-4.8 1 1 0 0 0-1.2-1.4 8 8 0 1 1-6.8-13.8 1 1 0 0 0 1.4-1.2A10 10 0 0 0 12.3 2z"/></svg>
+        <span>睡眠</span>
+      </div>
+      <div class="nav-item" onclick="switchTab('sensor', this)">
+        <svg viewBox="0 0 24 24"><path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/></svg>
+        <span>传感器</span>
+      </div>
+      <div class="nav-item" onclick="switchTab('settings', this)">
+        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        <span>设置</span>
+      </div>
+    </div>
+
+    <!-- Android Gesture Bar -->
+    <div class="android-nav-bar">
+      <div class="home-pill"></div>
+    </div>
+  </div>
+
+  <script>
+    // --- Application State ---
+    let sedentarySeconds = 42 * 60;
+    let alertThresholdMinutes = 45;
+    let activeWalkingSeconds = 0;
+    let postureMode = 'sit'; // 'sit' or 'walk'
+    let currentVmu = 0.02;
+    let vmuHistory = new Array(80).fill(0.02);
+    let isSleepTracking = false;
+
+    // --- Clocks & Timers ---
+    function updateClock() {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      document.getElementById('androidTime').textContent = `${hh}:${mm}`;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // --- State Machine Simulation Engine ---
+    setInterval(() => {
+      // 1. Generate ACC & VMU based on posture state
+      if (postureMode === 'sit') {
+        currentVmu = 0.015 + (Math.random() * 0.015); // < 0.04g
+        sedentarySeconds += 1;
+        activeWalkingSeconds = 0;
+      } else if (postureMode === 'walk') {
+        currentVmu = 0.18 + (Math.sin(Date.now() / 200) * 0.08) + (Math.random() * 0.04); // >= 0.15g
+        activeWalkingSeconds += 1;
+
+        if (activeWalkingSeconds >= 90) {
+          // Reset Sedentary Timer after 90 seconds continuous active walking!
+          sedentarySeconds = 0;
+          activeWalkingSeconds = 0;
+          setSimulationState('sit');
+          showWalkingResetNotification();
+        }
+      }
+
+      vmuHistory.shift();
+      vmuHistory.push(currentVmu);
+
+      updateUi();
+      drawOscilloscope();
+    }, 1000);
+
+    // Live Heart Rate Fluctuation
+    setInterval(() => {
+      const bpm = postureMode === 'walk' ? (105 + Math.floor(Math.random() * 15)) : (66 + Math.floor(Math.random() * 6));
+      document.getElementById('liveBpmText').textContent = `${bpm} BPM`;
+      document.getElementById('hrStatText').textContent = `${bpm} BPM`;
+      document.getElementById('ppiStatText').textContent = `${Math.round(60000 / bpm)} ms`;
+    }, 1200);
+
+    function updateUi() {
+      const mins = Math.floor(sedentarySeconds / 60);
+      document.getElementById('sedentaryMins').textContent = mins;
+
+      const progress = Math.min(1.0, sedentarySeconds / (alertThresholdMinutes * 60));
+      const pBar = document.getElementById('sedentaryProgressBar');
+      pBar.style.width = `${progress * 100}%`;
+
+      if (progress >= 1.0) {
+        pBar.style.backgroundColor = 'var(--recovery-low)';
+        triggerSedentaryAlert();
+      } else {
+        pBar.style.backgroundColor = 'var(--polar-cyan)';
+      }
+
+      // Walking Reset Box
+      const walkBox = document.getElementById('walkingResetBox');
+      const walkFill = document.getElementById('walkingProgressFill');
+      const walkText = document.getElementById('walkingSecsText');
+      if (postureMode === 'walk' || activeWalkingSeconds > 0) {
+        walkBox.style.display = 'block';
+        walkFill.style.width = `${(activeWalkingSeconds / 90) * 100}%`;
+        walkText.textContent = `${activeWalkingSeconds} / 90 秒`;
+      } else {
+        walkBox.style.display = 'none';
+      }
+
+      document.getElementById('currentVmuBadge').textContent = `${currentVmu.toFixed(2)}g`;
+    }
+
+    function setSimulationState(mode) {
+      postureMode = mode;
+      const badge = document.getElementById('postureBadge');
+      const btnSit = document.getElementById('btnSit');
+      const btnWalk = document.getElementById('btnWalk');
+
+      if (mode === 'sit') {
+        badge.className = 'state-badge badge-sedentary';
+        badge.textContent = '● 静止坐姿';
+        btnSit.className = 'btn btn-active';
+        btnWalk.className = 'btn';
+      } else {
+        badge.className = 'state-badge badge-walking';
+        badge.textContent = '● 连续快走中';
+        btnSit.className = 'btn';
+        btnWalk.className = 'btn btn-active';
+      }
+    }
+
+    function fastForwardAlert() {
+      sedentarySeconds = alertThresholdMinutes * 60;
+      updateUi();
+      triggerSedentaryAlert();
+    }
+
+    function resetSedentaryTimer() {
+      sedentarySeconds = 0;
+      activeWalkingSeconds = 0;
+      updateUi();
+      dismissNotification();
+    }
+
+    function triggerSedentaryAlert() {
+      const notif = document.getElementById('headsUpNotif');
+      notif.classList.add('show');
+    }
+
+    function showWalkingResetNotification() {
+      const notif = document.getElementById('headsUpNotif');
+      notif.querySelector('.notif-title').textContent = '✨ 达成活动目标！';
+      notif.querySelector('.notif-body').textContent = '检测到连续快走满 90 秒，久坐计时器已自动清零。太棒了！';
+      notif.classList.add('show');
+      setTimeout(dismissNotification, 4000);
+    }
+
+    function dismissNotification() {
+      document.getElementById('headsUpNotif').classList.remove('show');
+    }
+
+    function setAlertThreshold(minutes, btn) {
+      alertThresholdMinutes = minutes;
+      btn.parentElement.querySelectorAll('.btn').forEach(b => b.className = 'btn');
+      btn.className = 'btn btn-primary';
+      updateUi();
+    }
+
+    function toggleSleepTracking() {
+      isSleepTracking = !isSleepTracking;
+      const btn = document.getElementById('btnSleepToggle');
+      if (isSleepTracking) {
+        btn.textContent = '醒来 (停止)';
+        btn.className = 'btn btn-alert';
+        alert('🌙 睡眠监测已启动！正在后台连续采集 ACC 与 PPI 数据。');
+      } else {
+        btn.textContent = '开始监测';
+        btn.className = 'btn btn-primary';
+        alert('☀️ 睡眠结束！已计算 30s 阶梯 Hypnogram，晨间恢复分为 86 分。已记录至本地 SQLite 数据库。');
+        switchTab('sleep', document.querySelectorAll('.nav-item')[1]);
+      }
+    }
+
+    function syncHealthData() {
+      alert('✓ 已成功导出 7h 48m 睡眠阶段、静息心率 (56 bpm) 与 HRV (54 ms) 至系统健康库！');
+    }
+
+    // --- Tab Switching ---
+    function switchTab(tabId, navItem) {
+      document.querySelectorAll('.tab-page').forEach(page => page.classList.remove('active'));
+      document.getElementById(`tab-${tabId}`).classList.add('active');
+
+      document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+      navItem.classList.add('active');
+
+      if (tabId === 'sleep') {
+        drawSleepCharts();
+      }
+    }
+
+    // --- Oscilloscope Drawing ---
+    function drawOscilloscope() {
+      const canvas = document.getElementById('vmuWaveCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid
+      ctx.strokeStyle = '#1a2332';
+      ctx.lineWidth = 1;
+      for (let y = 20; y < h; y += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      // Draw 0.04g sedentary threshold line
+      const sedY = h - (0.04 / 0.3) * h;
+      ctx.strokeStyle = 'rgba(255, 107, 107, 0.4)';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(0, sedY);
+      ctx.lineTo(w, sedY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw wave
+      ctx.strokeStyle = '#00C7D4';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      const step = w / (vmuHistory.length - 1);
+      for (let i = 0; i < vmuHistory.length; i++) {
+        const val = vmuHistory[i];
+        const y = h - (val / 0.3) * h;
+        if (i === 0) ctx.moveTo(0, y);
+        else ctx.lineTo(i * step, y);
+      }
+      ctx.stroke();
+    }
+
+    // --- Gauge Drawing ---
+    function drawGauge(canvasId, score, color) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      const cx = w / 2;
+      const cy = h / 2;
+      const radius = 50;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Background Arc
+      ctx.strokeStyle = '#30363D';
+      ctx.lineWidth = 10;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0.75 * Math.PI, 2.25 * Math.PI);
+      ctx.stroke();
+
+      // Active Arc
+      const sweep = 1.5 * Math.PI * (score / 100);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0.75 * Math.PI, 0.75 * Math.PI + sweep);
+      ctx.stroke();
+    }
+
+    // --- Hypnogram Drawing ---
+    function drawHypnogram() {
+      const canvas = document.getElementById('hypnogramCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Stage Y coords (Wake: 20, REM: 55, Light: 90, Deep: 125)
+      const stagesY = { wake: 20, rem: 55, light: 90, deep: 125 };
+
+      // Background grid
+      ctx.strokeStyle = '#21262d';
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
+      Object.values(stagesY).forEach(y => {
+        ctx.beginPath();
+        ctx.moveTo(40, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      // Labels
+      ctx.font = '10px Roboto';
+      ctx.fillStyle = '#FF6B6B'; ctx.fillText('Wake', 6, 24);
+      ctx.fillStyle = '#9D4EDD'; ctx.fillText('REM', 8, 59);
+      ctx.fillStyle = '#48CAE4'; ctx.fillText('Light', 6, 94);
+      ctx.fillStyle = '#023E8A'; ctx.fillText('Deep', 6, 129);
+
+      // Typical healthy overnight hypnogram step data
+      const sequence = [
+        { s: 'wake', d: 15 },
+        { s: 'light', d: 40 },
+        { s: 'deep', d: 65 },
+        { s: 'light', d: 30 },
+        { s: 'rem', d: 25 },
+        { s: 'light', d: 35 },
+        { s: 'deep', d: 50 },
+        { s: 'light', d: 25 },
+        { s: 'rem', d: 35 },
+        { s: 'light', d: 45 },
+        { s: 'rem', d: 40 },
+        { s: 'wake', d: 15 },
+      ];
+
+      const totalDur = sequence.reduce((acc, cur) => acc + cur.d, 0);
+      const plotWidth = w - 46;
+      let curX = 44;
+
+      ctx.strokeStyle = '#00C7D4';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+
+      let lastY = stagesY[sequence[0].s];
+      ctx.moveTo(curX, lastY);
+
+      sequence.forEach(seg => {
+        const segW = (seg.d / totalDur) * plotWidth;
+        const targetY = stagesY[seg.s];
+
+        // Step up/down
+        ctx.lineTo(curX, targetY);
+        // Step forward
+        ctx.lineTo(curX + segW, targetY);
+
+        curX += segW;
+        lastY = targetY;
+      });
+
+      ctx.stroke();
+    }
+
+    function drawSleepCharts() {
+      drawGauge('homeGaugeCanvas', 86, '#2EC4B6');
+      drawGauge('sleepGaugeCanvas', 86, '#2EC4B6');
+      drawHypnogram();
+    }
+
+    // Initial draw
+    setTimeout(drawSleepCharts, 100);
+  </script>
+</body>
+</html>

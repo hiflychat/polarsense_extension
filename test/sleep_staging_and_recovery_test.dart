@@ -1,0 +1,97 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:polarsense_extension/core/database/models/sleep_record.dart';
+import 'package:polarsense_extension/features/sleep/sleep_staging_model.dart';
+import 'package:polarsense_extension/features/sleep/recovery_score_calculator.dart';
+
+void main() {
+  group('SleepStagingModel Classification Tests', () {
+    const baselineHr = 60.0;
+    const baselineRmssd = 40.0;
+
+    test('Classifies Wake when movement is high', () {
+      final stage = SleepStagingModel.classifyEpoch(
+        epochMovementIndex: 0.12, // > 0.08g
+        epochMeanHr: 62.0,
+        epochRmssd: 40.0,
+        baselineRestingHr: baselineHr,
+        baselineRmssd: baselineRmssd,
+      );
+      expect(stage, SleepStage.wake);
+    });
+
+    test('Classifies Wake when heart rate is elevated above baseline + 15 bpm', () {
+      final stage = SleepStagingModel.classifyEpoch(
+        epochMovementIndex: 0.02,
+        epochMeanHr: 78.0, // > 60 + 15
+        epochRmssd: 35.0,
+        baselineRestingHr: baselineHr,
+        baselineRmssd: baselineRmssd,
+      );
+      expect(stage, SleepStage.wake);
+    });
+
+    test('Classifies Deep Sleep when movement is minimal, HR is low, and RMSSD is elevated', () {
+      final stage = SleepStagingModel.classifyEpoch(
+        epochMovementIndex: 0.005, // < 0.01g
+        epochMeanHr: 58.0,         // <= 60 + 5
+        epochRmssd: 52.0,          // >= 1.2 * 40 = 48.0
+        baselineRestingHr: baselineHr,
+        baselineRmssd: baselineRmssd,
+      );
+      expect(stage, SleepStage.deep);
+    });
+
+    test('Classifies REM Sleep when movement is low and HR shows autonomic variance', () {
+      final stage = SleepStagingModel.classifyEpoch(
+        epochMovementIndex: 0.012, // < 0.02g
+        epochMeanHr: 64.0,         // > baseline 60.0
+        epochRmssd: 38.0,          // between 0.7 and 1.2 * baseline
+        baselineRestingHr: baselineHr,
+        baselineRmssd: baselineRmssd,
+      );
+      expect(stage, SleepStage.rem);
+    });
+
+    test('Classifies Light Sleep as intermediate default state', () {
+      final stage = SleepStagingModel.classifyEpoch(
+        epochMovementIndex: 0.04,
+        epochMeanHr: 62.0,
+        epochRmssd: 42.0,
+        baselineRestingHr: baselineHr,
+        baselineRmssd: baselineRmssd,
+      );
+      expect(stage, SleepStage.light);
+    });
+  });
+
+  group('RecoveryScoreCalculator Tests', () {
+    test('Calculates near 100 for optimal sleep duration, stages, and HRV', () {
+      final breakdown = RecoveryScoreCalculator.calculate(
+        durationMinutes: 480, // 8.0 hours (optimal 7-9h)
+        deepMinutes: 96,     // 20%
+        remMinutes: 105,     // 22% -> Combined = 42% (optimal 35-50%)
+        nightRmssd: 56.0,    // factor = 56 / 42 = 1.33 (> 1.25 -> 100)
+        baseline14DayRmssd: 42.0,
+      );
+
+      expect(breakdown.durationScore, closeTo(100.0, 0.1));
+      expect(breakdown.stageRatioScore, closeTo(100.0, 0.1));
+      expect(breakdown.hrvScore, closeTo(100.0, 0.1));
+      expect(breakdown.totalScore, closeTo(100, 1));
+      expect(breakdown.statusDescription, 'Optimal Recovery');
+    });
+
+    test('Scales down proportionally for short duration and low HRV', () {
+      final breakdown = RecoveryScoreCalculator.calculate(
+        durationMinutes: 240, // 4 hours -> durationScore ~ 57.1
+        deepMinutes: 20,
+        remMinutes: 20,      // Combined = 40m / 240m = 16.6% -> stageScore ~ 47.6
+        nightRmssd: 25.0,    // factor = 25 / 50 = 0.5 -> hrvScore ~ 37.5
+        baseline14DayRmssd: 50.0,
+      );
+
+      expect(breakdown.totalScore, lessThan(55));
+      expect(breakdown.statusDescription, anyOf('Moderate Recovery', 'Suboptimal / High Fatigue'));
+    });
+  });
+}

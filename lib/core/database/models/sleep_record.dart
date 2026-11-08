@@ -1,0 +1,162 @@
+enum SleepStage {
+  wake,
+  rem,
+  light,
+  deep,
+}
+
+extension SleepStageExtension on SleepStage {
+  String get name {
+    switch (this) {
+      case SleepStage.wake:
+        return 'Wake';
+      case SleepStage.rem:
+        return 'REM';
+      case SleepStage.light:
+        return 'Light';
+      case SleepStage.deep:
+        return 'Deep';
+    }
+  }
+
+  int get code {
+    switch (this) {
+      case SleepStage.wake:
+        return 0;
+      case SleepStage.rem:
+        return 1;
+      case SleepStage.light:
+        return 2;
+      case SleepStage.deep:
+        return 3;
+    }
+  }
+
+  static SleepStage fromCode(int code) {
+    switch (code) {
+      case 0:
+        return SleepStage.wake;
+      case 1:
+        return SleepStage.rem;
+      case 2:
+        return SleepStage.light;
+      case 3:
+        return SleepStage.deep;
+      default:
+        return SleepStage.light;
+    }
+  }
+}
+
+class SleepEpoch {
+  final int? id;
+  final String sessionId;
+  final DateTime timestamp;
+  final SleepStage stage;
+  final double meanHr;
+  final double rmssd;
+  final double movementIndex;
+
+  SleepEpoch({
+    this.id,
+    required this.sessionId,
+    required this.timestamp,
+    required this.stage,
+    required this.meanHr,
+    required this.rmssd,
+    required this.movementIndex,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      if (id != null) 'id': id,
+      'sessionId': sessionId,
+      'timestamp': timestamp.millisecondsSinceEpoch,
+      'stage': stage.code,
+      'meanHr': meanHr,
+      'rmssd': rmssd,
+      'movementIndex': movementIndex,
+    };
+  }
+
+  factory SleepEpoch.fromMap(Map<String, dynamic> map) {
+    return SleepEpoch(
+      id: map['id'] as int?,
+      sessionId: map['sessionId'] as String,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
+      stage: SleepStageExtension.fromCode(map['stage'] as int),
+      meanHr: (map['meanHr'] as num).toDouble(),
+      rmssd: (map['rmssd'] as num).toDouble(),
+      movementIndex: (map['movementIndex'] as num).toDouble(),
+    );
+  }
+}
+
+class SleepSession {
+  final String id;
+  final DateTime startTime;
+  final DateTime endTime;
+  final int durationMinutes;
+  final int wakeMinutes;
+  final int remMinutes;
+  final int lightMinutes;
+  final int deepMinutes;
+  final double restingHr;
+  final double avgRmssd;
+  final int recoveryScore;
+  final bool syncedToHealth;
+
+  SleepSession({
+    required this.id,
+    required this.startTime,
+    required this.endTime,
+    required this.durationMinutes,
+    required this.wakeMinutes,
+    required this.remMinutes,
+    required this.lightMinutes,
+    required this.deepMinutes,
+    required this.restingHr,
+    required this.avgRmssd,
+    required this.recoveryScore,
+    this.syncedToHealth = false,
+  });
+
+  double get deepPercentage => durationMinutes > 0 ? (deepMinutes / durationMinutes) * 100 : 0.0;
+  double get remPercentage => durationMinutes > 0 ? (remMinutes / durationMinutes) * 100 : 0.0;
+  double get lightPercentage => durationMinutes > 0 ? (lightMinutes / durationMinutes) * 100 : 0.0;
+  double get wakePercentage => durationMinutes > 0 ? (wakeMinutes / durationMinutes) * 100 : 0.0;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'startTime': startTime.millisecondsSinceEpoch,
+      'endTime': endTime.millisecondsSinceEpoch,
+      'durationMinutes': durationMinutes,
+      'wakeMinutes': wakeMinutes,
+      'remMinutes': remMinutes,
+      'lightMinutes': lightMinutes,
+      'deepMinutes': deepMinutes,
+      'restingHr': restingHr,
+      'avgRmssd': avgRmssd,
+      'recoveryScore': recoveryScore,
+      'syncedToHealth': syncedToHealth ? 1 : 0,
+    };
+  }
+
+  factory SleepSession.fromMap(Map<String, dynamic> map) {
+    return SleepSession(
+      id: map['id'] as String,
+      startTime: DateTime.fromMillisecondsSinceEpoch(map['startTime'] as int),
+      endTime: DateTime.fromMillisecondsSinceEpoch(map['endTime'] as int),
+      durationMinutes: map['durationMinutes'] as int,
+      wakeMinutes: map['wakeMinutes'] as int,
+      remMinutes: map['remMinutes'] as int,
+      lightMinutes: map['lightMinutes'] as int,
+      deepMinutes: map['deepMinutes'] as int,
+      restingHr: (map['restingHr'] as num).toDouble(),
+      avgRmssd: (map['avgRmssd'] as num).toDouble(),
+      recoveryScore: map['recoveryScore'] as int,
+      syncedToHealth: (map['syncedToHealth'] as int) == 1,
+    );
+  }
+}
