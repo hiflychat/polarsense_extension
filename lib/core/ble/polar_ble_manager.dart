@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:polar/polar.dart';
+import 'package:uuid/uuid.dart';
 import '../database/health_database.dart';
 import 'polar_constants.dart';
 
@@ -66,6 +67,15 @@ class PolarBleManager {
   final _batteryStreamController = StreamController<int>.broadcast();
   Stream<int> get batteryStream => _batteryStreamController.stream;
 
+  final _offlineRecordingController = StreamController<bool>.broadcast();
+  Stream<bool> get offlineRecordingStream => _offlineRecordingController.stream;
+
+  bool _isOfflineRecording = false;
+  bool get isOfflineRecording => _isOfflineRecording;
+
+  final List<PolarExerciseEntry> _mockStoredExercises = [];
+  List<PolarExerciseEntry> get mockStoredExercises => List.unmodifiable(_mockStoredExercises);
+
   final Map<String, DiscoveredDevice> _discoveredDevices = {};
 
   int? _batteryLevel;
@@ -108,6 +118,7 @@ class PolarBleManager {
 
       // Start streaming immediately on connection
       _startSensorStreams(info.deviceId);
+      checkOfflineRecordingStatus();
     });
 
     _deviceDisconnectedSub = _polar.deviceDisconnected.listen((event) {
@@ -116,6 +127,8 @@ class PolarBleManager {
       _connectedDeviceId = null;
       _batteryLevel = null;
       _currentHr = null;
+      _isOfflineRecording = false;
+      _offlineRecordingController.add(false);
       _cancelStreams();
 
       if (!_intentionalDisconnect) {
@@ -498,6 +511,212 @@ class PolarBleManager {
     _mockHrTimer = null;
   }
 
+  /// Check whether the sensor is currently recording offline internally
+  Future<PolarRecordingStatus?> checkOfflineRecordingStatus() async {
+    if (_isMockMode) {
+      final status = PolarRecordingStatus(
+        ongoing: _isOfflineRecording,
+        entryId: _isOfflineRecording ? 'mock-active-recording' : '',
+      );
+      _offlineRecordingController.add(_isOfflineRecording);
+      return status;
+    }
+
+    if (_connectedDeviceId == null) return null;
+
+    try {
+      final status = await _polar.requestRecordingStatus(_connectedDeviceId!);
+      _isOfflineRecording = status.ongoing;
+      _offlineRecordingController.add(status.ongoing);
+      debugPrint('[BLE] Sensor offline recording status: ${status.ongoing}, entryId: ${status.entryId}');
+      return status;
+    } catch (e) {
+      debugPrint('[BLE] Error requesting recording status: $e');
+      return null;
+    }
+  }
+
+  /// Start offline standalone recording directly into sensor flash memory
+  Future<bool> startOfflineRecording({
+    SampleType sampleType = SampleType.rr,
+    RecordingInterval interval = RecordingInterval.interval_1s,
+  }) async {
+    if (_isMockMode) {
+      _isOfflineRecording = true;
+      _offlineRecordingController.add(true);
+      debugPrint('[BLE] [MOCK] Standalone offline recording started');
+      return true;
+    }
+
+    if (_connectedDeviceId == null) {
+      debugPrint('[BLE] Cannot start recording: device not connected');
+      return false;
+    }
+
+    try {
+      final exerciseId = const Uuid().v4();
+      await _polar.startRecording(
+        _connectedDeviceId!,
+        exerciseId: exerciseId,
+        interval: interval,
+        sampleType: sampleType,
+      );
+      _isOfflineRecording = true;
+      _offlineRecordingController.add(true);
+      debugPrint('[BLE] Standalone offline recording started on $_connectedDeviceId (id: $exerciseId)');
+      return true;
+    } catch (e) {
+      debugPrint('[BLE] Failed to start offline recording: $e');
+      return false;
+    }
+  }
+
+  /// Stop offline standalone recording on sensor
+  Future<bool> stopOfflineRecording() async {
+    if (_isMockMode) {
+      _isOfflineRecording = false;
+      _offlineRecordingController.add(false);
+      // Register a mock exercise entry for testing
+      _mockStoredExercises.add(PolarExerciseEntry(
+        path: '/exercises/mock_night_sleep_${DateTime.now().millisecondsSinceEpoch}',
+        date: DateTime.now().subtract(const Duration(hours: 7, minutes: 30)),
+        entryId: const Uuid().v4(),
+      ));
+      debugPrint('[BLE] [MOCK] Standalone offline recording stopped');
+      return true;
+    }
+
+    if (_connectedDeviceId == null) {
+      debugPrint('[BLE] Cannot stop recording: device not connected');
+      return false;
+    }
+
+    try {
+      await _polar.stopRecording(_connectedDeviceId!);
+      _isOfflineRecording = false;
+      _offlineRecordingController.add(false);
+      debugPrint('[BLE] Standalone offline recording stopped on $_connectedDeviceId');
+      return true;
+    } catch (e) {
+      debugPrint('[BLE] Failed to stop offline recording: $e');
+      return false;
+    }
+  }
+
+  /// List all offline exercise entries stored in the sensor's 16MB flash memory
+  Future<List<PolarExerciseEntry>> listOfflineRecordings() async {
+    if (_isMockMode) {
+      if (_mockStoredExercises.isEmpty) {
+        _mockStoredExercises.add(PolarExerciseEntry(
+          path: '/exercises/mock_overnight_sleep',
+          date: DateTime.now().subtract(const Duration(hours: 8)),
+          entryId: 'mock-overnight-sleep-entry',
+        ));
+      }
+      return List.from(_mockStoredExercises);
+    }
+
+    if (_connectedDeviceId == null) {
+      debugPrint('[BLE] Cannot list recordings: device not connected');
+      return [];
+    }
+
+    try {
+      final entries = await _polar.listExercises(_connectedDeviceId!);
+      debugPrint('[BLE] Found ${entries.length} offline recordings on $_connectedDeviceId');
+      return entries;
+    } catch (e) {
+      debugPrint('[BLE] Error listing offline recordings: $e');
+      return [];
+    }
+  }
+
+  /// Download recorded exercise samples from sensor memory
+  Future<PolarExerciseData?> fetchOfflineRecording(PolarExerciseEntry entry) async {
+    if (_isMockMode || entry.entryId.startsWith('mock')) {
+      debugPrint('[BLE] [MOCK] Fetching mock overnight exercise data');
+      return generateMockSleepExerciseData();
+    }
+
+    if (_connectedDeviceId == null) {
+      debugPrint('[BLE] Cannot fetch recording: device not connected');
+      return null;
+    }
+
+    try {
+      final data = await _polar.fetchExercise(_connectedDeviceId!, entry);
+      debugPrint('[BLE] Fetched exercise: ${data.samples.length} samples, interval: ${data.interval}s');
+      return data;
+    } catch (e) {
+      debugPrint('[BLE] Error fetching exercise data: $e');
+      return null;
+    }
+  }
+
+  /// Remove single exercise from sensor memory after syncing
+  Future<bool> removeOfflineRecording(PolarExerciseEntry entry) async {
+    if (_isMockMode || entry.entryId.startsWith('mock')) {
+      _mockStoredExercises.removeWhere((e) => e.entryId == entry.entryId);
+      debugPrint('[BLE] [MOCK] Removed mock exercise entry: ${entry.entryId}');
+      return true;
+    }
+
+    if (_connectedDeviceId == null) return false;
+
+    try {
+      await _polar.removeExercise(_connectedDeviceId!, entry);
+      debugPrint('[BLE] Removed exercise entry from $_connectedDeviceId: ${entry.entryId}');
+      return true;
+    } catch (e) {
+      debugPrint('[BLE] Error removing exercise entry: $e');
+      return false;
+    }
+  }
+
+  /// Generates a scientifically modeled 7.5-hour overnight sleep session
+  /// for Verity Sense testing without waiting 8 hours overnight.
+  PolarExerciseData generateMockSleepExerciseData() {
+    final random = Random(42);
+    final samples = <int>[];
+
+    // Total duration: 450 minutes = 7.5 hours
+    // Samples at 1 Hz = 27,000 samples
+    // 30s epochs: 900 epochs
+    for (int epoch = 0; epoch < 900; epoch++) {
+      double targetMeanHr;
+      double targetRmssd;
+
+      if (epoch < 30 || epoch >= 860) {
+        // Wake
+        targetMeanHr = 72.0 + random.nextDouble() * 8.0;
+        targetRmssd = 28.0 + random.nextDouble() * 6.0;
+      } else if ((epoch >= 150 && epoch < 300) || (epoch >= 480 && epoch < 600)) {
+        // Deep Sleep: slow HR, elevated RMSSD
+        targetMeanHr = 51.5 + sin(epoch * 0.05) * 2.0;
+        targetRmssd = 56.0 + random.nextDouble() * 8.0;
+      } else if ((epoch >= 300 && epoch < 370) || (epoch >= 600 && epoch < 720)) {
+        // REM Sleep: autonomic bursts, higher variable HR, moderate RMSSD
+        targetMeanHr = 66.0 + sin(epoch * 0.2) * 5.0;
+        targetRmssd = 35.0 + random.nextDouble() * 5.0;
+      } else {
+        // Light Sleep: intermediate baseline
+        targetMeanHr = 61.0 + sin(epoch * 0.1) * 2.5;
+        targetRmssd = 42.0 + random.nextDouble() * 6.0;
+      }
+
+      // Generate 30 1-second samples for this epoch
+      final basePpi = 60000.0 / targetMeanHr;
+
+      for (int s = 0; s < 30; s++) {
+        final delta = (random.nextBool() ? 1 : -1) * (targetRmssd * (0.8 + random.nextDouble() * 0.4));
+        final ppi = (basePpi + delta * sin(s * 0.4)).round().clamp(500, 1500);
+        samples.add(ppi);
+      }
+    }
+
+    return PolarExerciseData(interval: 1, samples: samples);
+  }
+
   void dispose() {
     _cancelStreams();
     _stopMockStreaming();
@@ -512,5 +731,6 @@ class PolarBleManager {
     _ppiStreamController.close();
     _hrStreamController.close();
     _batteryStreamController.close();
+    _offlineRecordingController.close();
   }
 }

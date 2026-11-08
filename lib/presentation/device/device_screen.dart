@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ble/polar_ble_manager.dart';
 import '../../core/localization/app_strings.dart';
 import '../../features/sedentary/sedentary_notifier.dart';
+import '../../features/sleep/sleep_session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pulse_indicator.dart';
 
@@ -64,6 +65,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               // 2. Battery & Live Signal Monitors (if connected)
               if (isConnected) ...[
                 _buildLiveTelemetryCard(bleManager, strings),
+                const SizedBox(height: 16),
+                _buildOfflineStorageCard(bleManager, isConnected, strings),
                 const SizedBox(height: 16),
               ],
 
@@ -326,6 +329,182 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     );
   }
 
+  Widget _buildOfflineStorageCard(
+      PolarBleManager bleManager, bool isConnected, AppStrings strings) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.recoveryGood.withOpacity(0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.sd_storage, color: AppTheme.recoveryGood, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        strings.deviceMemory,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        strings.memoryDetail,
+                        style: const TextStyle(fontSize: 12, color: Colors.white54),
+                      ),
+                    ],
+                  ),
+                ),
+                StreamBuilder<bool>(
+                  stream: bleManager.offlineRecordingStream,
+                  initialData: bleManager.isOfflineRecording,
+                  builder: (context, snapshot) {
+                    final isRecording = snapshot.data ?? bleManager.isOfflineRecording;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: (isRecording ? AppTheme.recoveryGood : Colors.white12).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isRecording ? AppTheme.recoveryGood : Colors.white24,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isRecording ? Icons.fiber_manual_record : Icons.stop_circle_outlined,
+                            size: 10,
+                            color: isRecording ? AppTheme.recoveryGood : Colors.white54,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            isRecording ? strings.recordingStatus : strings.offlineRecordingIdle,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: isRecording ? AppTheme.recoveryGood : Colors.white60,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              strings.offlineGuideStep2,
+              style: const TextStyle(fontSize: 12, color: Colors.white70, height: 1.3),
+            ),
+            const SizedBox(height: 16),
+            StreamBuilder<bool>(
+              stream: bleManager.offlineRecordingStream,
+              initialData: bleManager.isOfflineRecording,
+              builder: (context, snapshot) {
+                final isRecording = snapshot.data ?? bleManager.isOfflineRecording;
+                return Row(
+                  children: [
+                    // Start or Stop Offline Recording Button
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isRecording ? AppTheme.polarRed : AppTheme.recoveryGood,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: isConnected
+                            ? () async {
+                                if (isRecording) {
+                                  await bleManager.stopOfflineRecording();
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(strings.stopOfflineRecord)),
+                                    );
+                                  }
+                                } else {
+                                  await bleManager.startOfflineRecording();
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(strings.offlineRecordingActive),
+                                        backgroundColor: AppTheme.recoveryGood,
+                                      ),
+                                    );
+                                  }
+                                }
+                              }
+                            : null,
+                        icon: Icon(isRecording ? Icons.stop : Icons.fiber_manual_record, size: 16),
+                        label: Text(
+                          isRecording ? strings.stopOfflineRecord : strings.startOfflineRecord,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    // Sync Button
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.polarCyan,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: isConnected
+                            ? () async {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(strings.readingDeviceExercises),
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                                final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep();
+                                if (context.mounted) {
+                                  if (session != null) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(strings.offlineSyncSuccess),
+                                        backgroundColor: AppTheme.recoveryGood,
+                                      ),
+                                    );
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(strings.noExercisesFound)),
+                                    );
+                                  }
+                                }
+                              }
+                            : null,
+                        icon: const Icon(Icons.download_for_offline, size: 16),
+                        label: Text(
+                          strings.syncOfflineSleep,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMiniMetric(IconData icon, String value, String label, Color color) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -424,6 +603,29 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                     },
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.indigoAccent,
+                    side: const BorderSide(color: Colors.indigoAccent),
+                  ),
+                  onPressed: () async {
+                    final session = await ref.read(sleepHistoryProvider.notifier).generateMockOfflineSleep();
+                    if (context.mounted && session != null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(strings.offlineSyncSuccess),
+                          backgroundColor: AppTheme.recoveryGood,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.bedtime, size: 16),
+                  label: Text(strings.generateMockOffline, style: const TextStyle(fontSize: 12)),
+                ),
               ),
             ],
           ],

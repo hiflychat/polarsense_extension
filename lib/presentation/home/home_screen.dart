@@ -185,45 +185,171 @@ class HomeScreen extends ConsumerWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppTheme.remColor.withOpacity(0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.nightlight_round, color: AppTheme.remColor, size: 24),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    strings.trackOvernightSleep,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.remColor.withOpacity(0.15),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    strings.recordsPpiRmssd,
-                    style: const TextStyle(fontSize: 12, color: Colors.white54),
+                  child: const Icon(Icons.nightlight_round, color: AppTheme.remColor, size: 24),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        strings.trackOvernightSleep,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        strings.syncOfflineSleepDesc,
+                        style: const TextStyle(fontSize: 12, color: Colors.white54),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.help_outline, color: AppTheme.polarCyan, size: 20),
+                  tooltip: strings.offlineGuideDialogTitle,
+                  onPressed: () => _showOfflineGuideDialog(context, strings),
+                ),
+              ],
             ),
-            FilledButton.tonal(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.polarCyan.withOpacity(0.2),
-                foregroundColor: AppTheme.polarCyan,
-              ),
-              onPressed: isBleConnected
-                  ? () => ref.read(sleepHistoryProvider.notifier).startTracking()
-                  : null,
-              child: Text(isBleConnected ? strings.startSleepTracking : strings.connectBleFirst),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                // 1. Sync from Sense Memory (Primary Offline Button)
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.polarCyan,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: isBleConnected
+                        ? () async {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Row(
+                                  children: [
+                                    const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(strings.readingDeviceExercises),
+                                  ],
+                                ),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+
+                            final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep();
+                            if (context.mounted) {
+                              if (session != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(strings.offlineSyncSuccess),
+                                    backgroundColor: AppTheme.recoveryGood,
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(strings.noExercisesFound),
+                                  ),
+                                );
+                              }
+                            }
+                          }
+                        : null,
+                    icon: const Icon(Icons.download_for_offline, size: 18),
+                    label: Text(
+                      isBleConnected ? strings.syncOfflineSleep : strings.connectBleFirst,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // 2. Real-time Live Tracking Button
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.remColor,
+                    side: const BorderSide(color: AppTheme.remColor),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: isBleConnected
+                      ? () => ref.read(sleepHistoryProvider.notifier).startTracking()
+                      : null,
+                  icon: const Icon(Icons.play_arrow, size: 18),
+                  label: Text(strings.liveTrackingMode, style: const TextStyle(fontSize: 12)),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showOfflineGuideDialog(BuildContext context, AppStrings strings) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkCard,
+        title: Row(
+          children: [
+            const Icon(Icons.menu_book, color: AppTheme.polarCyan, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                strings.offlineGuideDialogTitle,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(strings.offlineGuideStep1, style: const TextStyle(fontSize: 13, height: 1.4, color: Colors.white70)),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.recoveryGood.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.recoveryGood.withOpacity(0.3)),
+                ),
+                child: Text(
+                  strings.offlineGuideStep2,
+                  style: const TextStyle(fontSize: 13, height: 1.4, color: AppTheme.recoveryGood, fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(strings.offlineGuideStep3, style: const TextStyle(fontSize: 13, height: 1.4, color: Colors.white70)),
+              const SizedBox(height: 12),
+              Text(strings.offlineGuideStep4, style: const TextStyle(fontSize: 13, height: 1.4, color: AppTheme.polarCyan)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了 / Got it', style: TextStyle(color: AppTheme.polarCyan)),
+          ),
+        ],
       ),
     );
   }

@@ -114,6 +114,44 @@ class AppStrings {
   String get stageRatioFactor => isZh ? '深度+REM贡献 (30%)' : 'Deep+REM (30%)';
   String get hrvFactor => isZh ? 'HRV指数贡献 (40%)' : 'HRV Index (40%)';
 
+  // Offline Sleep & Standalone Recording
+  String get offlineSyncTitle => isZh ? '手环离线睡眠同步' : 'Sense Offline Sync';
+  String get syncOfflineSleep => isZh ? '从手环同步离线睡眠' : 'Sync Sleep from Sense';
+  String get syncOfflineSleepDesc => isZh
+      ? '下载手环内部存储的昨夜睡眠数据，自动完成本地 30 秒分期与身心恢复评分'
+      : 'Download recorded sleep from Sense flash memory & analyze stages & recovery';
+  String get offlineRecording => isZh ? '手环独立录制' : 'Standalone Recording';
+  String get startOfflineRecord => isZh ? '开启手环离线录制' : 'Start Sensor Recording';
+  String get stopOfflineRecord => isZh ? '停止手环离线录制' : 'Stop Sensor Recording';
+  String get offlineRecordingActive => isZh ? '手环正在独立录制中 (绿灯模式)' : 'Sensor is recording internally (Green LED)';
+  String get offlineRecordingIdle => isZh ? '手环未在录制' : 'Sensor recording is idle';
+  String get readingDeviceExercises => isZh ? '正在读取手环存储列表...' : 'Checking Sense storage...';
+  String get fetchingExerciseSamples => isZh ? '正在高速下载睡眠采样数据...' : 'Downloading sleep samples...';
+  String get analyzingSleepEpochs => isZh ? '正在进行 30秒 睡眠分期与 HRV 计算...' : 'Analyzing 30s sleep stages & HRV...';
+  String get offlineSyncSuccess => isZh ? '昨夜离线睡眠已成功同步并完成深度分析！' : 'Last night sleep synced and analyzed successfully!';
+  String get noExercisesFound => isZh ? '手环中未检测到新的离线睡眠记录。' : 'No offline recordings found on Sense.';
+  String get offlineGuideDialogTitle => isZh ? 'Polar Verity Sense 离线使用指南' : 'Polar Verity Sense Offline Guide';
+  String get offlineGuideStep1 => isZh
+      ? '1. 睡前开机：短按机身侧边圆形电源键开机。'
+      : '1. Power on: Short press the round side button to turn on.';
+  String get offlineGuideStep2 => isZh
+      ? '2. 切换绿灯：再次短按电源键，将侧面 3 颗 LED 指示灯切换至【绿色】（独立记录模式）。'
+      : '2. Green LED: Short press button to switch LED to GREEN (standalone recording mode).';
+  String get offlineGuideStep3 => isZh
+      ? '3. 佩戴入睡：佩戴在上臂或手腕入睡。手机可关机或关闭蓝牙，手环内部 16MB 芯片静默记录整夜。'
+      : '3. Wear to sleep: Wear on arm or wrist. Phone can be off; Sense records silently overnight.';
+  String get offlineGuideStep4 => isZh
+      ? '4. 醒来同步：晨起开机连接后点击【从手环同步离线睡眠】，1分钟内即可获取完整睡眠时序图与恢复分析报告！'
+      : '4. Wake & Sync: In the morning, connect and tap "Sync Sleep from Sense" to analyze in seconds!';
+  String get deviceMemory => isZh ? '手环内置闪存' : 'Sensor Flash Memory';
+  String get memoryDetail => isZh ? '16 MB 存储容量 (约可存 600 小时睡眠)' : '16 MB storage (~600 hours recording)';
+  String get storedExercises => isZh ? '手环中存储的记录' : 'Stored Records';
+  String get clearStorage => isZh ? '清除手环记录' : 'Delete from Sensor';
+  String get clearStorageConfirm => isZh ? '确认从手环内部存储中删除此记录吗？' : 'Delete this record from sensor memory?';
+  String get generateMockOffline => isZh ? '模拟生成 7.5小时 离线睡眠数据' : 'Simulate 7.5h Offline Sleep';
+  String get offlineTrackingMode => isZh ? '离线睡眠模式' : 'Offline Sleep Mode';
+  String get liveTrackingMode => isZh ? '实时蓝牙在线' : 'Real-Time Streaming';
+
   // Settings Screen
   String get settingsTitle => isZh ? '系统设置' : 'Settings';
   String get languageSetting => isZh ? '语言设置 / Language' : 'Language';

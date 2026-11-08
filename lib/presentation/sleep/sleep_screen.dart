@@ -21,6 +21,7 @@ class SleepScreen extends ConsumerStatefulWidget {
 class _SleepScreenState extends ConsumerState<SleepScreen> {
   final HealthExportService _healthExportService = HealthExportService();
   bool _isSyncing = false;
+  bool _isOfflineSyncing = false;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +34,18 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
       appBar: AppBar(
         title: Text(strings.sleepRecoveryTitle),
         actions: [
+          // 1. Sync from Sense Memory Action Button
+          IconButton(
+            tooltip: strings.syncOfflineSleep,
+            icon: _isOfflineSyncing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.polarCyan),
+                  )
+                : const Icon(Icons.download_for_offline, color: AppTheme.polarCyan),
+            onPressed: _isOfflineSyncing ? null : () => _handleOfflineSync(strings),
+          ),
           if (selectedSession != null)
             IconButton(
               tooltip: strings.exportTooltip,
@@ -94,7 +107,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
   Widget _buildEmptyState(AppStrings strings) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(28),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -109,6 +122,47 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
               strings.noSleepEmptyDesc,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 13, color: Colors.white54),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.polarCyan,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: _isOfflineSyncing ? null : () => _handleOfflineSync(strings),
+              icon: _isOfflineSyncing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    )
+                  : const Icon(Icons.download_for_offline, size: 20),
+              label: Text(
+                strings.syncOfflineSleep,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.polarCyan,
+                side: const BorderSide(color: AppTheme.polarCyan),
+              ),
+              onPressed: () async {
+                final session = await ref.read(sleepHistoryProvider.notifier).generateMockOfflineSleep();
+                if (mounted && session != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(strings.offlineSyncSuccess),
+                      backgroundColor: AppTheme.recoveryGood,
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.science, size: 18),
+              label: Text(strings.generateMockOffline),
             ),
           ],
         ),
@@ -355,6 +409,47 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
         ),
       );
       ref.read(sleepHistoryProvider.notifier).loadSessions();
+    }
+  }
+
+  Future<void> _handleOfflineSync(AppStrings strings) async {
+    setState(() => _isOfflineSyncing = true);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 10),
+            Text(strings.readingDeviceExercises),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
+    final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep();
+    setState(() => _isOfflineSyncing = false);
+
+    if (mounted) {
+      if (session != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(strings.offlineSyncSuccess),
+            backgroundColor: AppTheme.recoveryGood,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(strings.noExercisesFound),
+          ),
+        );
+      }
     }
   }
 }

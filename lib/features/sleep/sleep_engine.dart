@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:polar/polar.dart';
 import 'package:uuid/uuid.dart';
@@ -270,6 +271,198 @@ class SleepEngine {
     );
 
     _emitLiveStatus();
+    return session;
+  }
+
+  /// Batch process an offline sleep session fetched from Polar Verity Sense internal flash memory.
+  /// Converts raw HR/RR samples into 30-second epoch classifications, computes overnight RMSSD,
+  /// 10th-percentile resting HR, recovery score, and writes to SQLite database.
+  Future<SleepSession?> processOfflineExercise({
+    required DateTime startTime,
+    required PolarExerciseData exerciseData,
+    String? customSessionId,
+  }) async {
+    if (exerciseData.samples.isEmpty) {
+      debugPrint('[SleepEngine] Offline exercise has 0 samples');
+      return null;
+    }
+
+    final sessionId = customSessionId ?? const Uuid().v4();
+    final intervalSec = exerciseData.interval > 0 ? exerciseData.interval : 1;
+    final samples = exerciseData.samples;
+
+    _baselineRestingHr = await _database.getBaselineRestingHr();
+    _baseline14DayRmssd = await _database.get14DayBaselineRmssd();
+
+    // Determine whether samples are RR intervals (ms) or HR (BPM)
+    final nonZeroSamples = samples.where((s) => s > 0).take(100).toList();
+    final avgVal = nonZeroSamples.isNotEmpty
+        ? nonZeroSamples.reduce((a, b) => a + b) / nonZeroSamples.length
+        : 60.0;
+    final isRrIntervals = avgVal > 250;
+
+    debugPrint('[SleepEngine] Processing offline exercise ($sessionId): ${samples.length} samples, interval: ${intervalSec}s, isRr: $isRrIntervals');
+
+    // Number of samples in a 30-second epoch
+    final samplesPerEpoch = (30 / intervalSec).round().clamp(1, 300);
+    final List<SleepEpoch> generatedEpochs = [];
+    final List<double> allHr = [];
+    final List<double> allRmssd = [];
+
+    int totalSamples = samples.length;
+    int epochIndex = 0;
+
+    for (int i = 0; i < totalSamples; i += samplesPerEpoch) {
+      final chunk = samples.sublist(i, min(i + samplesPerEpoch, totalSamples));
+      if (chunk.isEmpty) continue;
+
+      final epochTime = startTime.add(Duration(seconds: epochIndex * 30));
+
+      List<int> validPpi = [];
+      List<double> epochHrList = [];
+
+      if (isRrIntervals) {
+        // chunk contains RR intervals in milliseconds
+        for (final ppi in chunk) {
+          if (ppi >= 300 && ppi <= 2000) {
+            validPpi.add(ppi);
+            epochHrList.add(60000.0 / ppi);
+          }
+        }
+      } else {
+        // chunk contains HR in BPM
+        for (final hr in chunk) {
+          if (hr >= 30 && hr <= 220) {
+            epochHrList.add(hr.toDouble());
+            validPpi.add((60000.0 / hr).round());
+          }
+        }
+      }
+
+      if (epochHrList.isEmpty) {
+        epochIndex++;
+        continue;
+      }
+
+      final meanHr = epochHrList.reduce((a, b) => a + b) / epochHrList.length;
+      final rmssd = HrvCalculator.calculateRmssd(validPpi);
+
+      // Estimate movement index from short-term HR jerkiness / variations
+      double movementIndex = 0.005; // base resting stillness
+      if (epochHrList.length > 1) {
+        final maxHr = epochHrList.reduce(max);
+        final minHr = epochHrList.reduce(min);
+        movementIndex = (maxHr - minHr) / 100.0; // e.g. 12 bpm swing = 0.12 (wake)
+      }
+
+      final stage = SleepStagingModel.classifyEpoch(
+        epochMovementIndex: movementIndex,
+        epochMeanHr: meanHr,
+        epochRmssd: rmssd > 0 ? rmssd : _baseline14DayRmssd * 0.8,
+        baselineRestingHr: _baselineRestingHr,
+        baselineRmssd: _baseline14DayRmssd,
+      );
+
+      allHr.add(meanHr);
+      if (rmssd > 0) allRmssd.add(rmssd);
+
+      final epoch = SleepEpoch(
+        sessionId: sessionId,
+        timestamp: epochTime,
+        stage: stage,
+        meanHr: meanHr,
+        rmssd: rmssd,
+        movementIndex: movementIndex,
+      );
+
+      generatedEpochs.add(epoch);
+      epochIndex++;
+    }
+
+    if (generatedEpochs.isEmpty) {
+      debugPrint('[SleepEngine] No valid sleep epochs generated from offline exercise');
+      return null;
+    }
+
+    final totalDurationSec = samples.length * intervalSec;
+    final durationMinutes = (totalDurationSec / 60).round();
+    final endTime = startTime.add(Duration(seconds: totalDurationSec));
+
+    int wakeCount = 0;
+    int remCount = 0;
+    int lightCount = 0;
+    int deepCount = 0;
+
+    for (final ep in generatedEpochs) {
+      switch (ep.stage) {
+        case SleepStage.wake:
+          wakeCount++;
+          break;
+        case SleepStage.rem:
+          remCount++;
+          break;
+        case SleepStage.light:
+          lightCount++;
+          break;
+        case SleepStage.deep:
+          deepCount++;
+          break;
+      }
+    }
+
+    final wakeMinutes = (wakeCount * 0.5).round();
+    final remMinutes = (remCount * 0.5).round();
+    final lightMinutes = (lightCount * 0.5).round();
+    final deepMinutes = (deepCount * 0.5).round();
+
+    // Overnight resting HR: 10th percentile
+    double restingHr = _baselineRestingHr;
+    if (allHr.isNotEmpty) {
+      allHr.sort();
+      final p10 = (allHr.length * 0.10).floor().clamp(0, allHr.length - 1);
+      restingHr = allHr[p10];
+    }
+
+    // Overnight average RMSSD
+    final avgRmssd = allRmssd.isNotEmpty
+        ? allRmssd.reduce((a, b) => a + b) / allRmssd.length
+        : _baseline14DayRmssd;
+
+    final recovery = RecoveryScoreCalculator.calculate(
+      durationMinutes: durationMinutes,
+      deepMinutes: deepMinutes,
+      remMinutes: remMinutes,
+      nightRmssd: avgRmssd,
+      baseline14DayRmssd: _baseline14DayRmssd,
+    );
+
+    final session = SleepSession(
+      id: sessionId,
+      startTime: startTime,
+      endTime: endTime,
+      durationMinutes: durationMinutes,
+      wakeMinutes: wakeMinutes,
+      remMinutes: remMinutes,
+      lightMinutes: lightMinutes,
+      deepMinutes: deepMinutes,
+      restingHr: restingHr,
+      avgRmssd: avgRmssd,
+      recoveryScore: recovery.totalScore,
+      syncedToHealth: false,
+    );
+
+    // Save to SQLite
+    await _database.insertSleepSession(session);
+    await _database.insertSleepEpochs(generatedEpochs);
+
+    // Trigger Notification
+    _notifications.showSleepSummary(
+      recoveryScore: session.recoveryScore,
+      durationHours: durationMinutes / 60.0,
+      deepPercent: session.deepPercentage.round(),
+    );
+
+    debugPrint('[SleepEngine] Successfully imported offline sleep: ${session.durationFormatted}, recovery: ${session.recoveryScore}');
     return session;
   }
 
