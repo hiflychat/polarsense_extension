@@ -708,8 +708,10 @@ class PolarBleManager {
       final basePpi = 60000.0 / targetMeanHr;
 
       for (int s = 0; s < 30; s++) {
-        final delta = (random.nextBool() ? 1 : -1) * (targetRmssd * (0.8 + random.nextDouble() * 0.4));
-        final ppi = (basePpi + delta * sin(s * 0.4)).round().clamp(500, 1500);
+        // Direct successive difference matching target RMSSD
+        final sign = s.isEven ? 1 : -1;
+        final jitter = (random.nextDouble() - 0.5) * 3.0;
+        final ppi = (basePpi + sign * (targetRmssd * 0.5) + jitter).round().clamp(500, 1500);
         samples.add(ppi);
       }
     }
