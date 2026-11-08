@@ -687,21 +687,21 @@ class PolarBleManager {
       double targetRmssd;
 
       if (epoch < 30 || epoch >= 860) {
-        // Wake
-        targetMeanHr = 72.0 + random.nextDouble() * 8.0;
-        targetRmssd = 28.0 + random.nextDouble() * 6.0;
+        // Wake: elevated HR above baseline + 15 bpm
+        targetMeanHr = 75.0 + random.nextDouble() * 6.0;
+        targetRmssd = 26.0 + random.nextDouble() * 5.0;
       } else if ((epoch >= 150 && epoch < 300) || (epoch >= 480 && epoch < 600)) {
-        // Deep Sleep: slow HR, elevated RMSSD
+        // Deep Sleep: slow resting HR, elevated parasympathetic RMSSD
         targetMeanHr = 51.5 + sin(epoch * 0.05) * 2.0;
-        targetRmssd = 56.0 + random.nextDouble() * 8.0;
+        targetRmssd = 56.0 + random.nextDouble() * 6.0;
       } else if ((epoch >= 300 && epoch < 370) || (epoch >= 600 && epoch < 720)) {
         // REM Sleep: autonomic bursts, higher variable HR, moderate RMSSD
-        targetMeanHr = 66.0 + sin(epoch * 0.2) * 5.0;
-        targetRmssd = 35.0 + random.nextDouble() * 5.0;
+        targetMeanHr = 66.0 + sin(epoch * 0.2) * 4.0;
+        targetRmssd = 36.0 + random.nextDouble() * 4.0;
       } else {
-        // Light Sleep: intermediate baseline
-        targetMeanHr = 61.0 + sin(epoch * 0.1) * 2.5;
-        targetRmssd = 42.0 + random.nextDouble() * 6.0;
+        // Light Sleep: intermediate baseline HR <= 58 and normal RMSSD
+        targetMeanHr = 56.5 + sin(epoch * 0.1) * 1.5;
+        targetRmssd = 38.0 + random.nextDouble() * 4.0;
       }
 
       // Generate 30 1-second samples for this epoch
