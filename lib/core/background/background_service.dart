@@ -44,26 +44,30 @@ class BackgroundService {
   bool get isRunning => _isRunning;
 
   Future<void> initialize() async {
-    FlutterForegroundTask.init(
-      androidNotificationOptions: AndroidNotificationOptions(
-        channelId: 'polarsense_foreground_service',
-        channelName: 'PolarSense Live Tracker',
-        channelDescription: 'Maintains continuous Bluetooth connection with Polar Verity Sense.',
-        channelImportance: NotificationChannelImportance.LOW,
-        priority: NotificationPriority.LOW,
-      ),
-      iosNotificationOptions: const IOSNotificationOptions(
-        showNotification: false,
-        playSound: false,
-      ),
-      foregroundTaskOptions: ForegroundTaskOptions(
-        eventAction: ForegroundTaskEventAction.repeat(5000),
-        autoRunOnBoot: false,
-        autoRunOnMyPackageReplaced: true,
-        allowWakeLock: true,
-        allowWifiLock: false,
-      ),
-    );
+    try {
+      FlutterForegroundTask.init(
+        androidNotificationOptions: AndroidNotificationOptions(
+          channelId: 'polarsense_foreground_service',
+          channelName: 'PolarSense Live Tracker',
+          channelDescription: 'Maintains continuous Bluetooth connection with Polar Verity Sense.',
+          channelImportance: NotificationChannelImportance.LOW,
+          priority: NotificationPriority.LOW,
+        ),
+        iosNotificationOptions: const IOSNotificationOptions(
+          showNotification: false,
+          playSound: false,
+        ),
+        foregroundTaskOptions: ForegroundTaskOptions(
+          eventAction: ForegroundTaskEventAction.repeat(5000),
+          autoRunOnBoot: false,
+          autoRunOnMyPackageReplaced: true,
+          allowWakeLock: true,
+          allowWifiLock: false,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[BackgroundService] Failed to initialize: $e');
+    }
   }
 
   Future<bool> startService() async {

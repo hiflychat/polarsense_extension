@@ -12,21 +12,39 @@ import 'presentation/theme/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Catch any unhandled framework errors
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('[FlutterError] ${details.exceptionAsString()}');
+  };
+
   // Set system UI overlay style
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: AppTheme.darkCard,
-    systemNavigationBarIconBrightness: Brightness.light,
-  ));
+  try {
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: AppTheme.darkCard,
+      systemNavigationBarIconBrightness: Brightness.light,
+    ));
+  } catch (e) {
+    debugPrint('[Main] SystemUI error: $e');
+  }
 
-  // Initialize notification channels and permissions
-  final notificationService = NotificationService();
-  await notificationService.initialize();
+  // Initialize notification channels safely
+  try {
+    final notificationService = NotificationService();
+    await notificationService.initialize();
+  } catch (e) {
+    debugPrint('[Main] NotificationService error: $e');
+  }
 
-  // Initialize background execution
-  final backgroundService = BackgroundService();
-  await backgroundService.initialize();
+  // Initialize background execution safely
+  try {
+    final backgroundService = BackgroundService();
+    await backgroundService.initialize();
+  } catch (e) {
+    debugPrint('[Main] BackgroundService error: $e');
+  }
 
   runApp(
     const ProviderScope(

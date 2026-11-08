@@ -9,6 +9,10 @@ android {
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
     compileOptions {
         coreLibraryDesugaringEnabled true
         sourceCompatibility = JavaVersion.VERSION_17
