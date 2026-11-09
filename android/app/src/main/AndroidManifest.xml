@@ -37,7 +37,7 @@
     </queries>
 
     <application
-        android:label="PolarSense"
+        android:label="晴雨脉"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">

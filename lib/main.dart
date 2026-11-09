@@ -98,7 +98,7 @@ class PolarSenseApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PolarSense',
+      title: '晴雨脉',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const MainNavigationShell(),

@@ -20,7 +20,7 @@ class AppStrings {
   String get tabSettings => isZh ? '系统设置' : 'Settings';
 
   // Home Screen
-  String get appTitle => isZh ? 'PolarSense 极地感应' : 'PolarSense';
+  String get appTitle => isZh ? '晴雨脉' : 'PolarSense';
   String get sedentaryTracker => isZh ? '久坐实时监测' : 'Sedentary Live Tracking';
   String get sedentaryAlert => isZh ? '该站起来活动一下了！' : 'Time to stand up and move!';
   String get sedentaryAlertDesc => isZh
