@@ -100,8 +100,8 @@ void main() {
 
     test('PolarBleManager.resolveOptimalAccSettings selects 52Hz over 416Hz', () {
       final available = PolarSensorSetting({
-        PolarSettingType.sampleRate: [26, 52, 104, 208, 416],
-        PolarSettingType.range: [2, 4, 8, 16],
+        PolarSettingType.sampleRate: 416,
+        PolarSettingType.range: 16,
       });
 
       final optimal = PolarBleManager.resolveOptimalAccSettings(available);

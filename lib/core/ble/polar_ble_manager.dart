@@ -634,21 +634,10 @@ class PolarBleManager {
   /// Selects the optimal actigraphy sample rate (52Hz standard) instead of maxSettings (416Hz)
   /// which causes heavy GC thrashing and UI frame drops.
   static PolarSensorSetting resolveOptimalAccSettings(PolarSensorSetting available) {
-    final Map<PolarSettingType, int> chosen = {};
-    for (final entry in available.settings.entries) {
-      if (entry.key == PolarSettingType.sampleRate) {
-        if (entry.value.contains(52)) {
-          chosen[entry.key] = 52;
-        } else if (entry.value.contains(26)) {
-          chosen[entry.key] = 26;
-        } else {
-          chosen[entry.key] = entry.value.reduce(min);
-        }
-      } else if (entry.key == PolarSettingType.range) {
-        chosen[entry.key] = entry.value.contains(8) ? 8 : entry.value.first;
-      } else {
-        chosen[entry.key] = entry.value.first;
-      }
+    final Map<PolarSettingType, int> chosen = Map<PolarSettingType, int>.from(available.settings);
+    chosen[PolarSettingType.sampleRate] = 52;
+    if (chosen.containsKey(PolarSettingType.range)) {
+      chosen[PolarSettingType.range] = 8;
     }
     return PolarSensorSetting(chosen);
   }
