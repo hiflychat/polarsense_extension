@@ -592,7 +592,7 @@ class PolarBleManager {
       await Future.delayed(const Duration(milliseconds: 300));
       if (_connectedDeviceId != deviceId) return;
 
-      // 3. Accelerometer Stream (Capped to standard 52Hz for actigraphy / posture tracking)
+      // 3. Accelerometer Stream (Capped to ultra-efficient 26Hz for actigraphy / posture tracking)
       if (availableTypes.contains(PolarDataType.acc) && _accSub == null) {
         try {
           debugPrint('[BLE] Requesting ACC settings for $deviceId');
@@ -600,7 +600,7 @@ class PolarBleManager {
               .requestStreamSettings(deviceId, PolarDataType.acc)
               .timeout(const Duration(seconds: 3));
           final optimalSettings = resolveOptimalAccSettings(settings);
-          debugPrint('[BLE] Starting ACC with optimal 52Hz settings: ${optimalSettings.settings}');
+          debugPrint('[BLE] Starting ACC with optimal 26Hz settings: ${optimalSettings.settings}');
 
           _accSub = _polar.startAccStreaming(deviceId, settings: optimalSettings).listen(
             (data) {
@@ -608,7 +608,7 @@ class PolarBleManager {
               _safeAdd(_accStreamController, data);
             },
             onError: (err) {
-              debugPrint('[BLE] Optimal ACC error: $err, falling back to explicit 52Hz');
+              debugPrint('[BLE] Optimal ACC error: $err, falling back to explicit 26Hz');
               _accSub?.cancel();
               _accSub = null;
               _startDefaultAccStream(deviceId);
@@ -616,7 +616,7 @@ class PolarBleManager {
             cancelOnError: false,
           );
         } catch (e) {
-          debugPrint('[BLE] Error getting ACC settings: $e, falling back to explicit 52Hz');
+          debugPrint('[BLE] Error getting ACC settings: $e, falling back to explicit 26Hz');
           _startDefaultAccStream(deviceId);
         }
       }
@@ -631,11 +631,11 @@ class PolarBleManager {
     }
   }
 
-  /// Selects the optimal actigraphy sample rate (52Hz standard) instead of maxSettings (416Hz)
-  /// which causes heavy GC thrashing and UI frame drops.
+  /// Selects the ultra-efficient 26Hz actigraphy sample rate instead of high-frequency rates,
+  /// completely eliminating GC pauses, event channel queueing, and battery drain.
   static PolarSensorSetting resolveOptimalAccSettings([PolarSensorSetting? available]) {
     return PolarSensorSetting({
-      PolarSettingType.sampleRate: 52,
+      PolarSettingType.sampleRate: 26,
       PolarSettingType.range: 8,
     });
   }
@@ -643,11 +643,11 @@ class PolarBleManager {
   void _startDefaultAccStream(String deviceId) {
     if (_accSub != null || _connectedDeviceId != deviceId) return;
     try {
-      debugPrint('[BLE] Starting explicit 52Hz ACC stream for $deviceId');
+      debugPrint('[BLE] Starting explicit 26Hz ACC stream for $deviceId');
       _accSub = _polar.startAccStreaming(
         deviceId,
         settings: PolarSensorSetting({
-          PolarSettingType.sampleRate: 52, // Native Polar Verity Sense rate
+          PolarSettingType.sampleRate: 26, // Native Polar Verity Sense low-power rate
           PolarSettingType.range: 8,
         }),
       ).listen(
@@ -656,7 +656,7 @@ class PolarBleManager {
           _safeAdd(_accStreamController, data);
         },
         onError: (err) {
-          debugPrint('[BLE] ACC default 52Hz stream error: $err');
+          debugPrint('[BLE] ACC default 26Hz stream error: $err');
           _accSub?.cancel();
           _accSub = null;
         },

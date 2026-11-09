@@ -98,7 +98,7 @@ void main() {
       expect(vmuHairWashing, lessThan(SedentaryEngine.activeArmVmuThreshold));
     });
 
-    test('PolarBleManager.resolveOptimalAccSettings selects 52Hz over 416Hz', () {
+    test('PolarBleManager.resolveOptimalAccSettings selects ultra-efficient 26Hz', () {
       final available = PolarSensorSetting({
         PolarSettingType.sampleRate: 416,
         PolarSettingType.range: 16,
