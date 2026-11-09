@@ -27,9 +27,10 @@ class AppStrings {
       ? '您已静坐超过设定时间，请起身走动以重置计时器。'
       : 'You have been sedentary past your threshold. Walk to reset.';
   String get resetManually => isZh ? '手动重置' : 'Reset Timer';
-  String get walkingResetTip => isZh ? '连续走动 90 秒可自动重置计时' : 'Walk for 90 seconds to auto-reset';
+  String get walkingResetTip => isZh ? '连续活动或走动 60 秒可自动重置计时' : 'Move arms or walk for 60s to auto-reset';
   String get sedentaryStationary => isZh ? '静止坐姿' : 'Stationary';
-  String get sedentaryMovingArm => isZh ? '手臂微动' : 'Moving (Arm)';
+  String get sedentaryTyping => isZh ? '工位办公' : 'Desk Work';
+  String get sedentaryMovingArm => isZh ? '手臂活动' : 'Active (Arms)';
   String get sedentaryWalking => isZh ? '走动中' : 'Walking';
   String get sedentaryDisconnected => isZh ? '手环未连接' : 'Sensor Disconnected';
   String get liveMotionVmu => isZh ? '姿态动量' : 'Motion VMU';
@@ -49,14 +50,14 @@ class AppStrings {
       ? '今晚佩戴 Polar Verity Sense 入睡，点击“开始睡眠监测”即可获得专属恢复评分。'
       : 'Wear your Polar Verity Sense to bed and tap Start to record sleep stages & recovery.';
   String get currentSitting => isZh ? '当前静坐' : 'Current Sitting';
-  String get walkingStreak => isZh ? '连续走动' : 'Walking Streak';
+  String get walkingStreak => isZh ? '持续活动' : 'Active Streak';
   String get min => isZh ? '分钟' : 'min';
   String get sec => isZh ? '秒' : 'sec';
   String get hrs => isZh ? '小时' : 'hrs';
   String get bpm => 'BPM';
   String get ms => 'ms';
   String get limit => isZh ? '提醒阈值' : 'Limit';
-  String get goal90s => isZh ? '目标: 90秒重置' : 'Goal: 90 sec reset';
+  String get goal90s => isZh ? '目标: 60秒重置' : 'Goal: 60 sec reset';
 
   // Sensor Screen
   String get sensorTitle => 'Polar Verity Sense';

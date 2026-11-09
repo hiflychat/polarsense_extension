@@ -31,7 +31,7 @@ void main() {
     test('Sedentary status getters and progress calculations', () {
       final status = SedentaryStatus(
         sedentarySeconds: 1800, // 30 minutes
-        activeWalkingSeconds: 45,
+        activeWalkingSeconds: 30, // 30s of active movement
         currentVmu: 0.02,
         state: PostureState.sedentary,
         alertThresholdMinutes: 60,
@@ -41,11 +41,11 @@ void main() {
 
       expect(status.sedentaryMinutes, 30);
       expect(status.progressToAlert, closeTo(0.5, 0.01));
-      expect(status.walkingResetProgress, closeTo(0.5, 0.01));
+      expect(status.walkingResetProgress, closeTo(0.5, 0.01)); // 30s / 60s = 0.5
       expect(status.isWalkingGraceActive, isTrue);
     });
 
-    test('Walking grace period is inactive when walking or when grace expires', () {
+    test('Active movement grace period is inactive during active movement or when grace expires', () {
       final walkingStatus = SedentaryStatus(
         sedentarySeconds: 100,
         activeWalkingSeconds: 50,
@@ -57,6 +57,18 @@ void main() {
       );
       // When actively walking, grace is not active (user is actively moving)
       expect(walkingStatus.isWalkingGraceActive, isFalse);
+
+      final armActiveStatus = SedentaryStatus(
+        sedentarySeconds: 100,
+        activeWalkingSeconds: 40,
+        currentVmu: 0.10,
+        state: PostureState.activeArmMove, // Washing hair, chores, stretching
+        alertThresholdMinutes: 45,
+        hasTriggeredAlert: false,
+        walkingPauseGraceCounter: 15,
+      );
+      // When actively moving arms (e.g. washing hair), grace is not active (active movement in progress)
+      expect(armActiveStatus.isWalkingGraceActive, isFalse);
 
       final expiredStatus = SedentaryStatus(
         sedentarySeconds: 100,
@@ -70,12 +82,18 @@ void main() {
       expect(expiredStatus.isWalkingGraceActive, isFalse);
     });
 
-    test('Intermediate posture VMU between 0.04g and 0.15g indicates desk activity', () {
-      // 70mg dynamic acceleration = 0.07g -> within intermediate desk typing range
-      final vmuTyping = SedentaryEngine.calculateVmu(0, 0, 1070);
-      expect(vmuTyping, closeTo(0.07, 0.001));
+    test('Desk typing vs active arm movement (washing hair/chores) classification', () {
+      // 50mg dynamic acceleration = 0.050g -> within desk typing range (0.035g - 0.070g)
+      final vmuTyping = SedentaryEngine.calculateVmu(0, 0, 1050);
+      expect(vmuTyping, closeTo(0.050, 0.001));
       expect(vmuTyping, greaterThanOrEqualTo(SedentaryEngine.sedentaryVmuThreshold));
-      expect(vmuTyping, lessThan(SedentaryEngine.walkingVmuThreshold));
+      expect(vmuTyping, lessThan(SedentaryEngine.deskTypingVmuThreshold));
+
+      // 100mg dynamic acceleration = 0.100g -> within active arm movement range (washing hair, stretching)
+      final vmuHairWashing = SedentaryEngine.calculateVmu(0, 0, 1100);
+      expect(vmuHairWashing, closeTo(0.100, 0.001));
+      expect(vmuHairWashing, greaterThanOrEqualTo(SedentaryEngine.deskTypingVmuThreshold));
+      expect(vmuHairWashing, lessThan(SedentaryEngine.activeArmVmuThreshold));
     });
   });
 }

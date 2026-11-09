@@ -8,9 +8,10 @@ import '../../core/database/models/sedentary_event.dart';
 import '../../core/notifications/notification_service.dart';
 
 enum PostureState {
-  sedentary,
-  intermediate,
-  activeWalking,
+  sedentary,     // Motionless sitting (< 0.035g)
+  typingDesk,    // Desk keyboard/mouse work (0.035g - 0.070g, sitting stationary at desk)
+  activeArmMove, // Active arm movement (0.070g - 0.150g, washing hair, stretching, chores -> breaks sedentary!)
+  activeWalking, // Locomotion / walking (>= 0.150g -> breaks sedentary!)
 }
 
 class SedentaryStatus {
@@ -34,10 +35,13 @@ class SedentaryStatus {
     this.walkingPauseGraceCounter = 0,
   });
 
+  bool get isActiveState =>
+      state == PostureState.activeWalking || state == PostureState.activeArmMove;
+
   bool get isWalkingGraceActive =>
       activeWalkingSeconds > 0 &&
       walkingPauseGraceCounter > 0 &&
-      state != PostureState.activeWalking;
+      !isActiveState;
 
   int get sedentaryMinutes => sedentarySeconds ~/ 60;
   int get sedentaryRemainingSeconds => sedentarySeconds % 60;
@@ -49,17 +53,21 @@ class SedentaryStatus {
   }
 
   double get progressToAlert => (sedentarySeconds / (alertThresholdMinutes * 60)).clamp(0.0, 1.0);
-  double get walkingResetProgress => (activeWalkingSeconds / 90.0).clamp(0.0, 1.0);
+  double get walkingResetProgress =>
+      (activeWalkingSeconds / SedentaryEngine.activeResetRequirementSec.toDouble()).clamp(0.0, 1.0);
 }
 
 class SedentaryEngine {
   final HealthDatabase _database = HealthDatabase();
   final NotificationService _notifications = NotificationService();
 
-  static const double sedentaryVmuThreshold = 0.04; // < 0.04g
-  static const double walkingVmuThreshold = 0.15;   // >= 0.15g
-  static const int walkingResetRequirementSec = 90; // 90 seconds continuous walking
-  static const int walkingPauseGraceSec = 15;       // 15 seconds pause tolerance during active breaks
+  static const double sedentaryVmuThreshold = 0.035; // < 0.035g: motionless sitting
+  static const double deskTypingVmuThreshold = 0.070; // 0.035g - 0.070g: desk keyboard/mouse work
+  static const double activeArmVmuThreshold = 0.150;  // 0.070g - 0.150g: active arm movement (hair washing, chores, stretching)
+  // >= 0.150g: active walking / stepping locomotion
+
+  static const int activeResetRequirementSec = 60;   // 60 seconds of continuous active movement breaks sedentary spell
+  static const int walkingPauseGraceSec = 15;        // 15 seconds pause tolerance during active breaks
 
   int _alertThresholdMinutes = 45;
   int get alertThresholdMinutes => _alertThresholdMinutes;
@@ -149,12 +157,18 @@ class SedentaryEngine {
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       try {
         if (_isDeviceConnected) {
-          if (_currentState == PostureState.sedentary || _currentState == PostureState.intermediate) {
-            // Desk typing (MET 1.3-1.5) and stationary sitting both count as sedentary duration
+          final isStationaryOrTyping = _currentState == PostureState.sedentary ||
+              _currentState == PostureState.typingDesk;
+
+          final isActiveMovement = _currentState == PostureState.activeWalking ||
+              _currentState == PostureState.activeArmMove;
+
+          if (isStationaryOrTyping) {
+            // Desk typing (MET 1.3-1.5) and motionless sitting accumulate sedentary duration
             _sedentarySeconds++;
             _checkAlertCondition();
 
-            // Handle active walking grace countdown
+            // Handle active movement grace countdown during brief pauses
             if (_activeWalkingSeconds > 0) {
               if (_walkingPauseGraceCounter > 0) {
                 _walkingPauseGraceCounter--;
@@ -162,10 +176,13 @@ class SedentaryEngine {
                 _activeWalkingSeconds = 0;
               }
             }
-          } else if (_currentState == PostureState.activeWalking) {
+          } else if (isActiveMovement) {
+            // User is actively moving (walking, washing hair, stretching, household chores):
+            // 1. Sedentary accumulation PAUSES completely!
+            // 2. Active movement streak increments
             _activeWalkingSeconds++;
             _walkingPauseGraceCounter = walkingPauseGraceSec;
-            if (_activeWalkingSeconds >= walkingResetRequirementSec) {
+            if (_activeWalkingSeconds >= activeResetRequirementSec) {
               _handleWalkingReset();
             }
           }
@@ -221,17 +238,20 @@ class SedentaryEngine {
     _lastWindowVmu = windowMeanVmu;
 
     if (windowMeanVmu < sedentaryVmuThreshold) {
-      // Sedentary state (< 0.04g)
+      // Motionless sitting (< 0.035g)
       _currentState = PostureState.sedentary;
       // Note: do not instantly zero _activeWalkingSeconds; ticker counts down the 15s grace period
-    } else if (windowMeanVmu >= walkingVmuThreshold) {
-      // Active / Walking state (>= 0.15g)
-      _currentState = PostureState.activeWalking;
+    } else if (windowMeanVmu < deskTypingVmuThreshold) {
+      // Desk keyboard typing / mouse operations (0.035g - 0.070g)
+      _currentState = PostureState.typingDesk;
+    } else if (windowMeanVmu < activeArmVmuThreshold) {
+      // Active arm movement: washing hair, stretching, household chores (0.070g - 0.150g)
+      _currentState = PostureState.activeArmMove;
       _walkingPauseGraceCounter = walkingPauseGraceSec; // Refresh grace window
     } else {
-      // Intermediate state (0.04g - 0.15g, e.g. typing, mouse control, gestures)
-      _currentState = PostureState.intermediate;
-      // Intermediate posture also benefits from the walking grace window
+      // Active walking / locomotion (>= 0.150g)
+      _currentState = PostureState.activeWalking;
+      _walkingPauseGraceCounter = walkingPauseGraceSec; // Refresh grace window
     }
   }
 

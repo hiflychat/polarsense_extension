@@ -131,7 +131,7 @@ class SedentaryProgressBar extends ConsumerWidget {
                     ],
                   ),
                   Text(
-                    '${status.activeWalkingSeconds} / 90s',
+                    '${status.activeWalkingSeconds} / 60s',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -205,9 +205,13 @@ class SedentaryProgressBar extends ConsumerWidget {
         label = strings.sedentaryStationary;
         color = Colors.blueGrey;
         break;
-      case PostureState.intermediate:
-        label = strings.sedentaryMovingArm;
+      case PostureState.typingDesk:
+        label = strings.sedentaryTyping;
         color = Colors.amber;
+        break;
+      case PostureState.activeArmMove:
+        label = strings.sedentaryMovingArm;
+        color = AppTheme.polarCyan;
         break;
       case PostureState.activeWalking:
         label = strings.sedentaryWalking;
