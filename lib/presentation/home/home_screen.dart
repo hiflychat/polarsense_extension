@@ -19,7 +19,6 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = ref.watch(stringsProvider);
     final bleManager = ref.watch(polarBleManagerProvider);
-    final sedentaryStatus = ref.watch(sedentaryStatusProvider);
     final sleepState = ref.watch(sleepHistoryProvider);
     final liveSleep = ref.watch(liveSleepStatusProvider).valueOrNull;
 
@@ -57,10 +56,15 @@ class HomeScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Sedentary Live Tracking
-              SedentaryProgressBar(
-                status: sedentaryStatus,
-                onReset: () => ref.read(sedentaryStatusProvider.notifier).resetTimer(),
+              // 1. Sedentary Live Tracking (Granular rebuild scoped only to progress bar)
+              Consumer(
+                builder: (context, ref, _) {
+                  final status = ref.watch(sedentaryStatusProvider);
+                  return SedentaryProgressBar(
+                    status: status,
+                    onReset: () => ref.read(sedentaryStatusProvider.notifier).resetTimer(),
+                  );
+                },
               ),
 
               const SizedBox(height: 16),
@@ -81,31 +85,36 @@ class HomeScreen extends ConsumerWidget {
 
               const SizedBox(height: 16),
 
-              // 4. Biometric Quick Cards
-              Row(
-                children: [
-                  Expanded(
-                    child: MetricCard(
-                      icon: Icons.timer,
-                      iconColor: AppTheme.polarCyan,
-                      title: strings.currentSitting,
-                      value: sedentaryStatus.formattedDuration,
-                      unit: '',
-                      subtitle: '${strings.limit}: ${sedentaryStatus.alertThresholdMinutes} ${strings.min}',
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: MetricCard(
-                      icon: Icons.directions_walk,
-                      iconColor: AppTheme.recoveryGood,
-                      title: strings.walkingStreak,
-                      value: '${sedentaryStatus.activeWalkingSeconds}',
-                      unit: strings.sec,
-                      subtitle: strings.goal90s,
-                    ),
-                  ),
-                ],
+              // 4. Biometric Quick Cards (Granular rebuild scoped only to metric cards)
+              Consumer(
+                builder: (context, ref, _) {
+                  final status = ref.watch(sedentaryStatusProvider);
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: MetricCard(
+                          icon: Icons.timer,
+                          iconColor: AppTheme.polarCyan,
+                          title: strings.currentSitting,
+                          value: status.formattedDuration,
+                          unit: '',
+                          subtitle: '${strings.limit}: ${status.alertThresholdMinutes} ${strings.min}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: MetricCard(
+                          icon: Icons.directions_walk,
+                          iconColor: AppTheme.recoveryGood,
+                          title: strings.walkingStreak,
+                          value: '${status.activeWalkingSeconds}',
+                          unit: strings.sec,
+                          subtitle: strings.goal90s,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
           ),

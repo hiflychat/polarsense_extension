@@ -99,6 +99,9 @@ class PolarBleManager {
   int? get lastRssi => _lastRssi;
 
   DateTime? _lastSampleReceivedTime;
+  DateTime? _lastHrEmitTime;
+  DateTime? _lastDiscoveredEmitTime;
+  DateTime? _lastHealingAttempt;
   Timer? _streamWatchdogTimer;
 
   StreamSubscription? _deviceConnectedSub;
@@ -122,6 +125,17 @@ class PolarBleManager {
   void _safeAdd<T>(StreamController<T> controller, T event) {
     if (!controller.isClosed) {
       controller.add(event);
+    }
+  }
+
+  /// Deduplicates and throttles live heart rate emissions to avoid UI thread flooding (max 1 event / 800ms)
+  void _updateCurrentHr(int hr) {
+    _currentHr = hr;
+    final now = DateTime.now();
+    if (_lastHrEmitTime == null ||
+        now.difference(_lastHrEmitTime!) >= const Duration(milliseconds: 800)) {
+      _lastHrEmitTime = now;
+      _safeAdd(_hrStreamController, hr);
     }
   }
 
@@ -361,6 +375,7 @@ class PolarBleManager {
     }
 
     _discoveredDevices.clear();
+    _lastDiscoveredEmitTime = null;
     _updateState(BleConnectionState.scanning);
 
     try {
@@ -375,7 +390,14 @@ class PolarBleManager {
             rssi: deviceInfo.rssi,
             isConnectable: deviceInfo.isConnectable,
           );
-          _safeAdd(_discoveredDevicesController, _discoveredDevices.values.toList());
+
+          // Throttle discovered devices stream to at most once every 600ms to avoid UI jank
+          final now = DateTime.now();
+          if (_lastDiscoveredEmitTime == null ||
+              now.difference(_lastDiscoveredEmitTime!) >= const Duration(milliseconds: 600)) {
+            _lastDiscoveredEmitTime = now;
+            _safeAdd(_discoveredDevicesController, _discoveredDevices.values.toList());
+          }
         },
         onError: (err) {
           debugPrint('[BLE] Search stream error: $err');
@@ -387,6 +409,7 @@ class PolarBleManager {
 
       Future.delayed(timeout, () {
         searchSub.cancel();
+        _safeAdd(_discoveredDevicesController, _discoveredDevices.values.toList());
         if (_connectionState == BleConnectionState.scanning) {
           _updateState(BleConnectionState.disconnected);
         }
@@ -514,8 +537,7 @@ class PolarBleManager {
               _lastSampleReceivedTime = DateTime.now();
               for (final sample in hrData.samples) {
                 if (sample.hr > 0 && sample.hr < 250) {
-                  _currentHr = sample.hr;
-                  _safeAdd(_hrStreamController, sample.hr);
+                  _updateCurrentHr(sample.hr);
                 }
               }
             },
@@ -544,11 +566,12 @@ class PolarBleManager {
             (ppiData) {
               _lastSampleReceivedTime = DateTime.now();
               _safeAdd(_ppiStreamController, ppiData);
-              for (final sample in ppiData.samples) {
-                if (sample.hr > 0 && sample.hr < 250) {
-                  // Real-time instantaneous optical HR fallback from Verity Sense
-                  _currentHr = sample.hr;
-                  _safeAdd(_hrStreamController, sample.hr);
+              // Only fallback to PPI HR if the standard HR stream is not running
+              if (_hrSub == null) {
+                for (final sample in ppiData.samples) {
+                  if (sample.hr > 0 && sample.hr < 250) {
+                    _updateCurrentHr(sample.hr);
+                  }
                 }
               }
             },
@@ -569,23 +592,23 @@ class PolarBleManager {
       await Future.delayed(const Duration(milliseconds: 300));
       if (_connectedDeviceId != deviceId) return;
 
-      // 3. Accelerometer Stream (Automatic device capability negotiation with 3s timeout)
+      // 3. Accelerometer Stream (Capped to standard 52Hz for actigraphy / posture tracking)
       if (availableTypes.contains(PolarDataType.acc) && _accSub == null) {
         try {
           debugPrint('[BLE] Requesting ACC settings for $deviceId');
           final settings = await _polar
               .requestStreamSettings(deviceId, PolarDataType.acc)
               .timeout(const Duration(seconds: 3));
-          final maxSettings = settings.maxSettings();
-          debugPrint('[BLE] Starting ACC with maxSettings: ${maxSettings.settings}');
+          final optimalSettings = resolveOptimalAccSettings(settings);
+          debugPrint('[BLE] Starting ACC with optimal 52Hz settings: ${optimalSettings.settings}');
 
-          _accSub = _polar.startAccStreaming(deviceId, settings: maxSettings).listen(
+          _accSub = _polar.startAccStreaming(deviceId, settings: optimalSettings).listen(
             (data) {
               _lastSampleReceivedTime = DateTime.now();
               _safeAdd(_accStreamController, data);
             },
             onError: (err) {
-              debugPrint('[BLE] Auto ACC error: $err, falling back to explicit 52Hz');
+              debugPrint('[BLE] Optimal ACC error: $err, falling back to explicit 52Hz');
               _accSub?.cancel();
               _accSub = null;
               _startDefaultAccStream(deviceId);
@@ -606,6 +629,28 @@ class PolarBleManager {
     } finally {
       _isStartingStreams = false;
     }
+  }
+
+  /// Selects the optimal actigraphy sample rate (52Hz standard) instead of maxSettings (416Hz)
+  /// which causes heavy GC thrashing and UI frame drops.
+  static PolarSensorSetting resolveOptimalAccSettings(PolarSensorSetting available) {
+    final Map<PolarSettingType, int> chosen = {};
+    for (final entry in available.settings.entries) {
+      if (entry.key == PolarSettingType.sampleRate) {
+        if (entry.value.contains(52)) {
+          chosen[entry.key] = 52;
+        } else if (entry.value.contains(26)) {
+          chosen[entry.key] = 26;
+        } else {
+          chosen[entry.key] = entry.value.reduce(min);
+        }
+      } else if (entry.key == PolarSettingType.range) {
+        chosen[entry.key] = entry.value.contains(8) ? 8 : entry.value.first;
+      } else {
+        chosen[entry.key] = entry.value.first;
+      }
+    }
+    return PolarSensorSetting(chosen);
   }
 
   void _startDefaultAccStream(String deviceId) {
@@ -638,7 +683,7 @@ class PolarBleManager {
 
   void _startStreamWatchdog(String deviceId) {
     _streamWatchdogTimer?.cancel();
-    _streamWatchdogTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+    _streamWatchdogTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (_connectedDeviceId != deviceId || _connectionState != BleConnectionState.streaming) {
         timer.cancel();
         return;
@@ -646,10 +691,15 @@ class PolarBleManager {
       if (_isMockMode) return;
 
       final now = DateTime.now();
+      // Watchdog timeout is 15 seconds, with a 30-second cooldown between healing attempts
       if (_lastSampleReceivedTime != null &&
-          now.difference(_lastSampleReceivedTime!) > const Duration(seconds: 10)) {
-        debugPrint('[BLE Watchdog] Stream stalled for >10s! Attempting auto-healing for $deviceId...');
-        _healSensorStreams(deviceId);
+          now.difference(_lastSampleReceivedTime!) > const Duration(seconds: 15)) {
+        if (_lastHealingAttempt == null ||
+            now.difference(_lastHealingAttempt!) > const Duration(seconds: 30)) {
+          _lastHealingAttempt = now;
+          debugPrint('[BLE Watchdog] Stream stalled for >15s! Attempting auto-healing for $deviceId...');
+          _healSensorStreams(deviceId);
+        }
       }
     });
   }

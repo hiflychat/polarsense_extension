@@ -31,7 +31,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final strings = ref.watch(stringsProvider);
     final currentLanguage = ref.watch(appLanguageProvider);
-    final sedentaryStatus = ref.watch(sedentaryStatusProvider);
+    final alertThresholdMinutes = ref.watch(
+      sedentaryStatusProvider.select((s) => s.alertThresholdMinutes),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -126,7 +128,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   Wrap(
                     spacing: 8,
                     children: [30, 45, 60, 90].map((minutes) {
-                      final isSelected = sedentaryStatus.alertThresholdMinutes == minutes;
+                      final isSelected = alertThresholdMinutes == minutes;
                       return ChoiceChip(
                         label: Text('$minutes ${strings.min}'),
                         selected: isSelected,

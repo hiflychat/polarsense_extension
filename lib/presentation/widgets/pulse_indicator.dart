@@ -26,20 +26,37 @@ class _PulseIndicatorState extends State<PulseIndicator>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
+    );
 
     _scaleAnimation = Tween<double>(begin: 0.9, end: 1.15).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
+
+    if (widget.isConnected) {
+      _controller.repeat(reverse: true);
+    }
   }
 
   @override
   void didUpdateWidget(covariant PulseIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.hr != null && widget.hr! > 0) {
-      // Adjust pulse animation speed according to real-time BPM
+    if (widget.isConnected != oldWidget.isConnected) {
+      if (widget.isConnected) {
+        if (!_controller.isAnimating) {
+          _controller.repeat(reverse: true);
+        }
+      } else {
+        _controller.stop();
+      }
+    }
+
+    if (widget.hr != null && widget.hr! > 0 && widget.hr != oldWidget.hr) {
+      // Adjust pulse animation speed according to real-time BPM only when HR changes
       final msPerBeat = (60000 / widget.hr!).clamp(400, 1500).round();
-      _controller.duration = Duration(milliseconds: msPerBeat ~/ 2);
+      final newDuration = Duration(milliseconds: msPerBeat ~/ 2);
+      if (_controller.duration != newDuration) {
+        _controller.duration = newDuration;
+      }
     }
   }
 
@@ -82,12 +99,14 @@ class _PulseIndicatorState extends State<PulseIndicator>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ScaleTransition(
-            scale: _scaleAnimation,
-            child: const Icon(
-              Icons.favorite,
-              color: AppTheme.polarRed,
-              size: 15,
+          RepaintBoundary(
+            child: ScaleTransition(
+              scale: _scaleAnimation,
+              child: const Icon(
+                Icons.favorite,
+                color: AppTheme.polarRed,
+                size: 15,
+              ),
             ),
           ),
           const SizedBox(width: 6),

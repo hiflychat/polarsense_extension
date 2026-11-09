@@ -221,6 +221,11 @@ class SedentaryEngine {
       _vmuWindowBuffer.add(vmu);
     }
 
+    // Safety buffer limit: prevent unbounded memory growth if timestamp jumps
+    if (_vmuWindowBuffer.length > 600) {
+      _vmuWindowBuffer.removeRange(0, _vmuWindowBuffer.length - 300);
+    }
+
     final now = DateTime.now();
     _windowStartTime ??= now;
 

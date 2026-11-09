@@ -1,5 +1,7 @@
 import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:polar/polar.dart';
+import 'package:polarsense_extension/core/ble/polar_ble_manager.dart';
 import 'package:polarsense_extension/features/sedentary/sedentary_engine.dart';
 
 void main() {
@@ -94,6 +96,17 @@ void main() {
       expect(vmuHairWashing, closeTo(0.100, 0.001));
       expect(vmuHairWashing, greaterThanOrEqualTo(SedentaryEngine.deskTypingVmuThreshold));
       expect(vmuHairWashing, lessThan(SedentaryEngine.activeArmVmuThreshold));
+    });
+
+    test('PolarBleManager.resolveOptimalAccSettings selects 52Hz over 416Hz', () {
+      final available = PolarSensorSetting({
+        PolarSettingType.sampleRate: [26, 52, 104, 208, 416],
+        PolarSettingType.range: [2, 4, 8, 16],
+      });
+
+      final optimal = PolarBleManager.resolveOptimalAccSettings(available);
+      expect(optimal.settings[PolarSettingType.sampleRate], 52);
+      expect(optimal.settings[PolarSettingType.range], 8);
     });
   });
 }
