@@ -67,6 +67,26 @@ class SleepEpoch {
     required this.movementIndex,
   });
 
+  SleepEpoch copyWith({
+    int? id,
+    String? sessionId,
+    DateTime? timestamp,
+    SleepStage? stage,
+    double? meanHr,
+    double? rmssd,
+    double? movementIndex,
+  }) {
+    return SleepEpoch(
+      id: id ?? this.id,
+      sessionId: sessionId ?? this.sessionId,
+      timestamp: timestamp ?? this.timestamp,
+      stage: stage ?? this.stage,
+      meanHr: meanHr ?? this.meanHr,
+      rmssd: rmssd ?? this.rmssd,
+      movementIndex: movementIndex ?? this.movementIndex,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
@@ -126,6 +146,36 @@ class SleepSession {
   double get lightPercentage => durationMinutes > 0 ? (lightMinutes / durationMinutes) * 100 : 0.0;
   double get wakePercentage => durationMinutes > 0 ? (wakeMinutes / durationMinutes) * 100 : 0.0;
   String get durationFormatted => '${durationMinutes ~/ 60}h ${durationMinutes % 60}m';
+
+  SleepSession copyWith({
+    String? id,
+    DateTime? startTime,
+    DateTime? endTime,
+    int? durationMinutes,
+    int? wakeMinutes,
+    int? remMinutes,
+    int? lightMinutes,
+    int? deepMinutes,
+    double? restingHr,
+    double? avgRmssd,
+    int? recoveryScore,
+    bool? syncedToHealth,
+  }) {
+    return SleepSession(
+      id: id ?? this.id,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      wakeMinutes: wakeMinutes ?? this.wakeMinutes,
+      remMinutes: remMinutes ?? this.remMinutes,
+      lightMinutes: lightMinutes ?? this.lightMinutes,
+      deepMinutes: deepMinutes ?? this.deepMinutes,
+      restingHr: restingHr ?? this.restingHr,
+      avgRmssd: avgRmssd ?? this.avgRmssd,
+      recoveryScore: recoveryScore ?? this.recoveryScore,
+      syncedToHealth: syncedToHealth ?? this.syncedToHealth,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {

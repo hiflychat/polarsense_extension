@@ -73,6 +73,16 @@ class AppStrings {
   String get scanningBtn => isZh ? '正在扫描...' : 'Scanning...';
   String get disconnect => isZh ? '断开连接' : 'Disconnect';
   String get connect => isZh ? '连接' : 'Connect';
+  String get reconnectNow => isZh ? '立即重连' : 'Reconnect Now';
+  String get signalQuality => isZh ? '信号质量' : 'Signal';
+  String get signalExcellent => isZh ? '极佳' : 'Excellent';
+  String get signalGood => isZh ? '良好' : 'Good';
+  String get signalFair => isZh ? '一般' : 'Fair';
+  String get signalWeak => isZh ? '较弱' : 'Weak';
+  String get walkingGraceActive => isZh ? '活动缓冲中' : 'Grace Pause';
+  String get readingDeviceExercisesStep => isZh ? '步骤 1/3: 正在读取手环存储列表...' : 'Step 1/3: Checking Sense recordings...';
+  String get fetchingExerciseSamplesStep => isZh ? '步骤 2/3: 正在高速下载睡眠采样数据...' : 'Step 2/3: Downloading sleep samples...';
+  String get analyzingSleepEpochsStep => isZh ? '步骤 3/3: 正在进行 30秒 睡眠分期与 HRV 计算...' : 'Step 3/3: Analyzing 30s sleep stages & HRV...';
   String get forgetDevice => isZh ? '解除配对' : 'Forget Device';
   String get bluetoothPermissionPrompt => isZh
       ? '需要授予蓝牙和定位权限才能连接手环'

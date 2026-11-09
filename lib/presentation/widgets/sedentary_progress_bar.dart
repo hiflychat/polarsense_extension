@@ -103,16 +103,39 @@ class SedentaryProgressBar extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    '${strings.walkingStreak} (${strings.walkingResetTip})',
-                    style: const TextStyle(fontSize: 12, color: Colors.white70),
+                  Row(
+                    children: [
+                      Text(
+                        strings.walkingStreak,
+                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                      const SizedBox(width: 6),
+                      if (status.isWalkingGraceActive)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                          ),
+                          child: Text(
+                            '${strings.walkingGraceActive} ${status.walkingPauseGraceCounter}s',
+                            style: const TextStyle(fontSize: 10, color: Colors.amber, fontWeight: FontWeight.bold),
+                          ),
+                        )
+                      else
+                        Text(
+                          '(${strings.walkingResetTip})',
+                          style: const TextStyle(fontSize: 11, color: Colors.white38),
+                        ),
+                    ],
                   ),
                   Text(
                     '${status.activeWalkingSeconds} / 90s',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: AppTheme.recoveryGood,
+                      color: status.isWalkingGraceActive ? Colors.amber : AppTheme.recoveryGood,
                     ),
                   ),
                 ],
@@ -124,7 +147,9 @@ class SedentaryProgressBar extends ConsumerWidget {
                   value: status.walkingResetProgress,
                   minHeight: 6,
                   backgroundColor: AppTheme.darkBorder,
-                  valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.recoveryGood),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    status.isWalkingGraceActive ? Colors.amber : AppTheme.recoveryGood,
+                  ),
                 ),
               ),
             ],

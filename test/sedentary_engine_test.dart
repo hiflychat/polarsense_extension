@@ -36,11 +36,46 @@ void main() {
         state: PostureState.sedentary,
         alertThresholdMinutes: 60,
         hasTriggeredAlert: false,
+        walkingPauseGraceCounter: 10,
       );
 
       expect(status.sedentaryMinutes, 30);
       expect(status.progressToAlert, closeTo(0.5, 0.01));
       expect(status.walkingResetProgress, closeTo(0.5, 0.01));
+      expect(status.isWalkingGraceActive, isTrue);
+    });
+
+    test('Walking grace period is inactive when walking or when grace expires', () {
+      final walkingStatus = SedentaryStatus(
+        sedentarySeconds: 100,
+        activeWalkingSeconds: 50,
+        currentVmu: 0.20,
+        state: PostureState.activeWalking,
+        alertThresholdMinutes: 45,
+        hasTriggeredAlert: false,
+        walkingPauseGraceCounter: 15,
+      );
+      // When actively walking, grace is not active (user is actively moving)
+      expect(walkingStatus.isWalkingGraceActive, isFalse);
+
+      final expiredStatus = SedentaryStatus(
+        sedentarySeconds: 100,
+        activeWalkingSeconds: 0,
+        currentVmu: 0.01,
+        state: PostureState.sedentary,
+        alertThresholdMinutes: 45,
+        hasTriggeredAlert: false,
+        walkingPauseGraceCounter: 0,
+      );
+      expect(expiredStatus.isWalkingGraceActive, isFalse);
+    });
+
+    test('Intermediate posture VMU between 0.04g and 0.15g indicates desk activity', () {
+      // 70mg dynamic acceleration = 0.07g -> within intermediate desk typing range
+      final vmuTyping = SedentaryEngine.calculateVmu(0, 0, 1070);
+      expect(vmuTyping, closeTo(0.07, 0.001));
+      expect(vmuTyping, greaterThanOrEqualTo(SedentaryEngine.sedentaryVmuThreshold));
+      expect(vmuTyping, lessThan(SedentaryEngine.walkingVmuThreshold));
     });
   });
 }

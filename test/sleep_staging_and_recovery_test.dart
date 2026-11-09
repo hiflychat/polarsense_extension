@@ -64,6 +64,36 @@ void main() {
     });
   });
 
+  group('SleepStagingModel Temporal Smoothing Tests', () {
+    final t0 = DateTime.now();
+
+    test('Eliminates isolated 30-second stage flicker between identical stages', () {
+      final epochs = [
+        SleepEpoch(sessionId: 's1', timestamp: t0, stage: SleepStage.deep, meanHr: 54, rmssd: 55, movementIndex: 0.005),
+        SleepEpoch(sessionId: 's1', timestamp: t0.add(const Duration(seconds: 30)), stage: SleepStage.light, meanHr: 55, rmssd: 50, movementIndex: 0.005),
+        SleepEpoch(sessionId: 's1', timestamp: t0.add(const Duration(seconds: 60)), stage: SleepStage.deep, meanHr: 54, rmssd: 54, movementIndex: 0.005),
+      ];
+
+      final smoothed = SleepStagingModel.smoothEpochs(epochs);
+      expect(smoothed[0].stage, SleepStage.deep);
+      expect(smoothed[1].stage, SleepStage.deep); // Smoothed from light to deep
+      expect(smoothed[2].stage, SleepStage.deep);
+    });
+
+    test('Preserves true motor arousals and heart rate spikes as Wake', () {
+      final epochs = [
+        SleepEpoch(sessionId: 's1', timestamp: t0, stage: SleepStage.deep, meanHr: 54, rmssd: 55, movementIndex: 0.005),
+        SleepEpoch(sessionId: 's1', timestamp: t0.add(const Duration(seconds: 30)), stage: SleepStage.wake, meanHr: 82, rmssd: 25, movementIndex: 0.09),
+        SleepEpoch(sessionId: 's1', timestamp: t0.add(const Duration(seconds: 60)), stage: SleepStage.deep, meanHr: 54, rmssd: 54, movementIndex: 0.005),
+      ];
+
+      final smoothed = SleepStagingModel.smoothEpochs(epochs);
+      expect(smoothed[0].stage, SleepStage.deep);
+      expect(smoothed[1].stage, SleepStage.wake); // Preserved because movement > 0.06 & HR >= 80
+      expect(smoothed[2].stage, SleepStage.deep);
+    });
+  });
+
   group('RecoveryScoreCalculator Tests', () {
     test('Calculates near 100 for optimal sleep duration, stages, and HRV', () {
       final breakdown = RecoveryScoreCalculator.calculate(

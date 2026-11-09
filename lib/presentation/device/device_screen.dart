@@ -289,6 +289,25 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 ],
               ),
             ),
+            if (!isConnected && bleManager.pairedDeviceId != null) ...[
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.polarCyan,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: bleManager.connectionState == BleConnectionState.connecting
+                    ? null
+                    : () => bleManager.connectToDevice(bleManager.pairedDeviceId!),
+                icon: const Icon(Icons.refresh, size: 16),
+                label: Text(
+                  strings.reconnectNow,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
             TextButton(
               style: TextButton.styleFrom(foregroundColor: AppTheme.polarRed),
               onPressed: () => bleManager.forgetDevice(),
@@ -300,6 +319,44 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     );
   }
 
+  Widget _buildSignalBadge(int rssi, AppStrings strings) {
+    Color col;
+    String label;
+    if (rssi >= -60) {
+      col = AppTheme.recoveryGood;
+      label = strings.signalExcellent;
+    } else if (rssi >= -75) {
+      col = AppTheme.polarCyan;
+      label = strings.signalGood;
+    } else if (rssi >= -85) {
+      col = Colors.amber;
+      label = strings.signalFair;
+    } else {
+      col = AppTheme.polarRed;
+      label = strings.signalWeak;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: col.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: col.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.network_wifi_3_bar, size: 13, color: col),
+          const SizedBox(width: 4),
+          Text(
+            '$rssi dBm ($label)',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: col),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLiveTelemetryCard(PolarBleManager bleManager, AppStrings strings) {
     return Card(
       child: Padding(
@@ -307,9 +364,16 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              strings.realtimeTelemetry,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  strings.realtimeTelemetry,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+                ),
+                if (bleManager.lastRssi != null)
+                  _buildSignalBadge(bleManager.lastRssi!, strings),
+              ],
             ),
             const SizedBox(height: 16),
             Row(

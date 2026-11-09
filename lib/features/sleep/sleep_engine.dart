@@ -146,25 +146,37 @@ class SleepEngine {
   }
 
   void _finalizeEpoch(DateTime timestamp) {
-    if (_epochPpiBuffer.isEmpty) return;
+    // 1. Mean HR & RMSSD calculation
+    double meanHr;
+    double rmssd;
 
-    // 1. Mean HR for the 30s epoch
-    final meanHr = HrvCalculator.calculateMeanHr(_epochPpiBuffer);
-    // 2. RMSSD for the 30s epoch
-    final rmssd = HrvCalculator.calculateRmssd(_epochPpiBuffer);
-    // 3. Movement Index: sum of VMU during the 30 seconds
     final movementIndex = _epochVmuBuffer.isNotEmpty
         ? _epochVmuBuffer.reduce((a, b) => a + b) / _epochVmuBuffer.length
         : 0.0;
 
-    // 4. Classify sleep stage
-    final stage = SleepStagingModel.classifyEpoch(
-      epochMovementIndex: movementIndex,
-      epochMeanHr: meanHr,
-      epochRmssd: rmssd,
-      baselineRestingHr: _baselineRestingHr,
-      baselineRmssd: _baseline14DayRmssd,
-    );
+    if (_epochPpiBuffer.isNotEmpty) {
+      meanHr = HrvCalculator.calculateMeanHr(_epochPpiBuffer);
+      rmssd = HrvCalculator.calculateRmssd(_epochPpiBuffer);
+    } else {
+      // PPG optical contact momentarily dropped or noisy; carry forward latest state/baseline
+      // to maintain a continuous unbroken 30s epoch timeline.
+      meanHr = _latestHr > 0 ? _latestHr : _baselineRestingHr;
+      rmssd = _latestRmssd > 0 ? _latestRmssd : _baseline14DayRmssd;
+    }
+
+    // 2. Classify sleep stage
+    SleepStage stage;
+    if (_epochPpiBuffer.isEmpty && movementIndex > 0.08) {
+      stage = SleepStage.wake;
+    } else {
+      stage = SleepStagingModel.classifyEpoch(
+        epochMovementIndex: movementIndex,
+        epochMeanHr: meanHr,
+        epochRmssd: rmssd,
+        baselineRestingHr: _baselineRestingHr,
+        baselineRmssd: _baseline14DayRmssd,
+      );
+    }
 
     _latestHr = meanHr;
     _latestRmssd = rmssd;
@@ -199,9 +211,12 @@ class SleepEngine {
     _statusTicker = null;
 
     // Finalize trailing partial epoch if sufficient samples exist
-    if (_epochPpiBuffer.length >= 10) {
+    if (_epochPpiBuffer.length >= 10 || _epochVmuBuffer.isNotEmpty) {
       _finalizeEpoch(endTime);
     }
+
+    // Apply temporal continuity smoothing across whole session
+    final smoothedEpochs = SleepStagingModel.smoothEpochs(_sessionEpochs);
 
     final durationMinutes = endTime.difference(_sessionStartTime!).inMinutes;
 
@@ -211,7 +226,7 @@ class SleepEngine {
     int lightCount = 0;
     int deepCount = 0;
 
-    for (final epoch in _sessionEpochs) {
+    for (final epoch in smoothedEpochs) {
       switch (epoch.stage) {
         case SleepStage.wake:
           wakeCount++;
@@ -273,7 +288,7 @@ class SleepEngine {
 
     // Save to SQLite
     await _database.insertSleepSession(session);
-    await _database.insertSleepEpochs(_sessionEpochs);
+    await _database.insertSleepEpochs(smoothedEpochs);
 
     // Send Morning Recovery Notification
     _notifications.showSleepSummary(
@@ -399,6 +414,9 @@ class SleepEngine {
       return null;
     }
 
+    // Apply temporal continuity smoothing across whole offline recording
+    final smoothedEpochs = SleepStagingModel.smoothEpochs(generatedEpochs);
+
     final totalDurationSec = samples.length * intervalSec;
     final durationMinutes = (totalDurationSec / 60).round();
     final endTime = startTime.add(Duration(seconds: totalDurationSec));
@@ -408,7 +426,7 @@ class SleepEngine {
     int lightCount = 0;
     int deepCount = 0;
 
-    for (final ep in generatedEpochs) {
+    for (final ep in smoothedEpochs) {
       switch (ep.stage) {
         case SleepStage.wake:
           wakeCount++;
@@ -468,7 +486,7 @@ class SleepEngine {
 
     // Save to SQLite
     await _database.insertSleepSession(session);
-    await _database.insertSleepEpochs(generatedEpochs);
+    await _database.insertSleepEpochs(smoothedEpochs);
 
     // Trigger Notification
     _notifications.showSleepSummary(

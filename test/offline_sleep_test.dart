@@ -82,6 +82,7 @@ void main() {
 
       final allEpochHr = <double>[];
       final allEpochRmssd = <double>[];
+      final generatedEpochs = <SleepEpoch>[];
 
       // Slicing into 900 30-second epochs
       for (int i = 0; i < exerciseData.samples.length; i += 30) {
@@ -105,9 +106,23 @@ void main() {
           baselineRmssd: baselineRmssd,
         );
 
-        stageCounts[stage] = (stageCounts[stage] ?? 0) + 1;
         allEpochHr.add(meanHr);
         allEpochRmssd.add(rmssd);
+
+        generatedEpochs.add(SleepEpoch(
+          sessionId: 'mock-offline-session',
+          timestamp: DateTime.now().add(Duration(seconds: (i ~/ 30) * 30)),
+          stage: stage,
+          meanHr: meanHr,
+          rmssd: rmssd,
+          movementIndex: movementIndex,
+        ));
+      }
+
+      // Apply continuity smoother
+      final smoothedEpochs = SleepStagingModel.smoothEpochs(generatedEpochs);
+      for (final ep in smoothedEpochs) {
+        stageCounts[ep.stage] = (stageCounts[ep.stage] ?? 0) + 1;
       }
 
       // Assert that all four stages are detected

@@ -95,6 +95,12 @@ class PolarBleManager {
   int? _currentHr;
   int? get currentHr => _currentHr;
 
+  int? _lastRssi;
+  int? get lastRssi => _lastRssi;
+
+  DateTime? _lastSampleReceivedTime;
+  Timer? _streamWatchdogTimer;
+
   StreamSubscription? _deviceConnectedSub;
   StreamSubscription? _deviceDisconnectedSub;
   StreamSubscription? _batterySub;
@@ -360,6 +366,9 @@ class PolarBleManager {
     try {
       final searchSub = _polar.searchForDevice().listen(
         (deviceInfo) {
+          if (deviceInfo.deviceId == _connectedDeviceId || deviceInfo.deviceId == _pairedDeviceId) {
+            _lastRssi = deviceInfo.rssi;
+          }
           _discoveredDevices[deviceInfo.deviceId] = DiscoveredDevice(
             deviceId: deviceInfo.deviceId,
             name: deviceInfo.name.isNotEmpty ? deviceInfo.name : 'Polar Verity Sense',
@@ -502,6 +511,7 @@ class PolarBleManager {
           debugPrint('[BLE] Starting HR stream for $deviceId');
           _hrSub = _polar.startHrStreaming(deviceId).listen(
             (hrData) {
+              _lastSampleReceivedTime = DateTime.now();
               for (final sample in hrData.samples) {
                 if (sample.hr > 0 && sample.hr < 250) {
                   _currentHr = sample.hr;
@@ -532,6 +542,7 @@ class PolarBleManager {
           debugPrint('[BLE] Starting PPI stream for $deviceId');
           _ppiSub = _polar.startPpiStreaming(deviceId).listen(
             (ppiData) {
+              _lastSampleReceivedTime = DateTime.now();
               _safeAdd(_ppiStreamController, ppiData);
               for (final sample in ppiData.samples) {
                 if (sample.hr > 0 && sample.hr < 250) {
@@ -570,6 +581,7 @@ class PolarBleManager {
 
           _accSub = _polar.startAccStreaming(deviceId, settings: maxSettings).listen(
             (data) {
+              _lastSampleReceivedTime = DateTime.now();
               _safeAdd(_accStreamController, data);
             },
             onError: (err) {
@@ -586,7 +598,9 @@ class PolarBleManager {
         }
       }
 
+      _lastSampleReceivedTime = DateTime.now();
       _updateState(BleConnectionState.streaming);
+      _startStreamWatchdog(deviceId);
     } catch (e) {
       debugPrint('[BLE] Error in _startSensorStreams: $e');
     } finally {
@@ -605,7 +619,10 @@ class PolarBleManager {
           PolarSettingType.range: 8,
         }),
       ).listen(
-        (data) => _safeAdd(_accStreamController, data),
+        (data) {
+          _lastSampleReceivedTime = DateTime.now();
+          _safeAdd(_accStreamController, data);
+        },
         onError: (err) {
           debugPrint('[BLE] ACC default 52Hz stream error: $err');
           _accSub?.cancel();
@@ -619,7 +636,35 @@ class PolarBleManager {
     }
   }
 
+  void _startStreamWatchdog(String deviceId) {
+    _streamWatchdogTimer?.cancel();
+    _streamWatchdogTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      if (_connectedDeviceId != deviceId || _connectionState != BleConnectionState.streaming) {
+        timer.cancel();
+        return;
+      }
+      if (_isMockMode) return;
+
+      final now = DateTime.now();
+      if (_lastSampleReceivedTime != null &&
+          now.difference(_lastSampleReceivedTime!) > const Duration(seconds: 10)) {
+        debugPrint('[BLE Watchdog] Stream stalled for >10s! Attempting auto-healing for $deviceId...');
+        _healSensorStreams(deviceId);
+      }
+    });
+  }
+
+  Future<void> _healSensorStreams(String deviceId) async {
+    if (_connectedDeviceId != deviceId || _isStartingStreams) return;
+    debugPrint('[BLE Watchdog] Restarting stalled streams on $deviceId');
+    _cancelStreams();
+    _lastSampleReceivedTime = DateTime.now();
+    await _startSensorStreams(deviceId);
+  }
+
   void _cancelStreams() {
+    _streamWatchdogTimer?.cancel();
+    _streamWatchdogTimer = null;
     _accSub?.cancel();
     _accSub = null;
     _ppiSub?.cancel();

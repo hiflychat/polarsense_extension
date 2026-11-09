@@ -415,41 +415,141 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
   Future<void> _handleOfflineSync(AppStrings strings) async {
     setState(() => _isOfflineSyncing = true);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-            ),
-            const SizedBox(width: 10),
-            Text(strings.readingDeviceExercises),
-          ],
-        ),
-        duration: const Duration(seconds: 2),
+    String progressMessage = strings.readingDeviceExercisesStep;
+
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: AppTheme.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      color: AppTheme.polarCyan,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    strings.syncOfflineSleep,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    progressMessage,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13, color: Colors.white70),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
 
     final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep();
+
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+
     setState(() => _isOfflineSyncing = false);
 
     if (mounted) {
       if (session != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(strings.offlineSyncSuccess),
+            content: Text(
+              '${strings.offlineSyncSuccess} (${session.durationFormatted}, ${strings.lastNightRecovery}: ${session.recoveryScore})',
+            ),
             backgroundColor: AppTheme.recoveryGood,
+            duration: const Duration(seconds: 4),
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(strings.noExercisesFound),
-          ),
-        );
+        _showOfflineGuideDialog(strings);
       }
     }
+  }
+
+  void _showOfflineGuideDialog(AppStrings strings) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.info_outline, color: AppTheme.polarCyan, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                strings.offlineGuideDialogTitle,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                strings.noExercisesFound,
+                style: const TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 14),
+              _buildGuideStep(strings.offlineGuideStep1),
+              const SizedBox(height: 8),
+              _buildGuideStep(strings.offlineGuideStep2),
+              const SizedBox(height: 8),
+              _buildGuideStep(strings.offlineGuideStep3),
+              const SizedBox(height: 8),
+              _buildGuideStep(strings.offlineGuideStep4),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK', style: TextStyle(color: AppTheme.polarCyan)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideStep(String step) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppTheme.darkBackground,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.darkBorder),
+      ),
+      child: Text(
+        step,
+        style: const TextStyle(fontSize: 12, color: Colors.white70, height: 1.4),
+      ),
+    );
   }
 }

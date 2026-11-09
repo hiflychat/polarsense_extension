@@ -21,6 +21,7 @@ class SedentaryStatus {
   final int alertThresholdMinutes;
   final bool hasTriggeredAlert;
   final bool isDeviceConnected;
+  final int walkingPauseGraceCounter;
 
   SedentaryStatus({
     required this.sedentarySeconds,
@@ -30,7 +31,13 @@ class SedentaryStatus {
     required this.alertThresholdMinutes,
     required this.hasTriggeredAlert,
     this.isDeviceConnected = true,
+    this.walkingPauseGraceCounter = 0,
   });
+
+  bool get isWalkingGraceActive =>
+      activeWalkingSeconds > 0 &&
+      walkingPauseGraceCounter > 0 &&
+      state != PostureState.activeWalking;
 
   int get sedentaryMinutes => sedentarySeconds ~/ 60;
   int get sedentaryRemainingSeconds => sedentarySeconds % 60;
@@ -49,15 +56,39 @@ class SedentaryEngine {
   final HealthDatabase _database = HealthDatabase();
   final NotificationService _notifications = NotificationService();
 
-  int _alertThresholdMinutes = 45;
-  int get alertThresholdMinutes => _alertThresholdMinutes;
-  set alertThresholdMinutes(int value) {
-    _alertThresholdMinutes = value;
-  }
-
   static const double sedentaryVmuThreshold = 0.04; // < 0.04g
   static const double walkingVmuThreshold = 0.15;   // >= 0.15g
   static const int walkingResetRequirementSec = 90; // 90 seconds continuous walking
+  static const int walkingPauseGraceSec = 15;       // 15 seconds pause tolerance during active breaks
+
+  int _alertThresholdMinutes = 45;
+  int get alertThresholdMinutes => _alertThresholdMinutes;
+  set alertThresholdMinutes(int value) {
+    if (_alertThresholdMinutes != value) {
+      _alertThresholdMinutes = value;
+      _database.setSetting('sedentary_threshold_minutes', value.toString());
+      _emitStatus();
+    }
+  }
+
+  SedentaryEngine() {
+    _loadPersistedThreshold();
+  }
+
+  Future<void> _loadPersistedThreshold() async {
+    try {
+      final saved = await _database.getSetting('sedentary_threshold_minutes');
+      if (saved != null) {
+        final parsed = int.tryParse(saved);
+        if (parsed != null && parsed >= 15 && parsed <= 180) {
+          _alertThresholdMinutes = parsed;
+          _emitStatus();
+        }
+      }
+    } catch (e) {
+      debugPrint('[SedentaryEngine] Failed to load threshold: $e');
+    }
+  }
 
   final List<double> _vmuWindowBuffer = [];
   DateTime? _windowStartTime;
@@ -65,6 +96,9 @@ class SedentaryEngine {
 
   int _sedentarySeconds = 0;
   int _activeWalkingSeconds = 0;
+  int _walkingPauseGraceCounter = 0;
+  int get walkingPauseGraceCounter => _walkingPauseGraceCounter;
+
   double _lastWindowVmu = 0.0;
   PostureState _currentState = PostureState.sedentary;
   bool _hasTriggeredAlert = false;
@@ -93,6 +127,7 @@ class SedentaryEngine {
     alertThresholdMinutes: _alertThresholdMinutes,
     hasTriggeredAlert: _hasTriggeredAlert,
     isDeviceConnected: _isDeviceConnected,
+    walkingPauseGraceCounter: _walkingPauseGraceCounter,
   );
 
   void start(Stream<PolarAccData> accStream) {
@@ -114,11 +149,22 @@ class SedentaryEngine {
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       try {
         if (_isDeviceConnected) {
-          if (_currentState == PostureState.sedentary) {
+          if (_currentState == PostureState.sedentary || _currentState == PostureState.intermediate) {
+            // Desk typing (MET 1.3-1.5) and stationary sitting both count as sedentary duration
             _sedentarySeconds++;
             _checkAlertCondition();
+
+            // Handle active walking grace countdown
+            if (_activeWalkingSeconds > 0) {
+              if (_walkingPauseGraceCounter > 0) {
+                _walkingPauseGraceCounter--;
+              } else {
+                _activeWalkingSeconds = 0;
+              }
+            }
           } else if (_currentState == PostureState.activeWalking) {
             _activeWalkingSeconds++;
+            _walkingPauseGraceCounter = walkingPauseGraceSec;
             if (_activeWalkingSeconds >= walkingResetRequirementSec) {
               _handleWalkingReset();
             }
@@ -175,16 +221,17 @@ class SedentaryEngine {
     _lastWindowVmu = windowMeanVmu;
 
     if (windowMeanVmu < sedentaryVmuThreshold) {
-      // Sedentary state
+      // Sedentary state (< 0.04g)
       _currentState = PostureState.sedentary;
-      _activeWalkingSeconds = 0; // Reset active continuous counter
+      // Note: do not instantly zero _activeWalkingSeconds; ticker counts down the 15s grace period
     } else if (windowMeanVmu >= walkingVmuThreshold) {
-      // Active / Walking state
+      // Active / Walking state (>= 0.15g)
       _currentState = PostureState.activeWalking;
+      _walkingPauseGraceCounter = walkingPauseGraceSec; // Refresh grace window
     } else {
-      // Intermediate state (e.g. minor arm movements/typing)
+      // Intermediate state (0.04g - 0.15g, e.g. typing, mouse control, gestures)
       _currentState = PostureState.intermediate;
-      _activeWalkingSeconds = 0;
+      // Intermediate posture also benefits from the walking grace window
     }
   }
 
@@ -222,6 +269,7 @@ class SedentaryEngine {
     // Reset timers
     _sedentarySeconds = 0;
     _activeWalkingSeconds = 0;
+    _walkingPauseGraceCounter = 0;
     _hasTriggeredAlert = false;
     _sedentaryPeriodStart = now;
 
@@ -231,6 +279,7 @@ class SedentaryEngine {
   void resetManually() {
     _sedentarySeconds = 0;
     _activeWalkingSeconds = 0;
+    _walkingPauseGraceCounter = 0;
     _hasTriggeredAlert = false;
     _sedentaryPeriodStart = DateTime.now();
     _emitStatus();
