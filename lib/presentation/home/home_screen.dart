@@ -22,8 +22,9 @@ class HomeScreen extends ConsumerWidget {
     final sleepState = ref.watch(sleepHistoryProvider);
     final liveSleep = ref.watch(liveSleepStatusProvider).valueOrNull;
 
-    final isBleConnected = bleManager.connectionState == BleConnectionState.connected ||
-        bleManager.connectionState == BleConnectionState.streaming;
+    final connectionState = ref.watch(bleConnectionStateProvider).valueOrNull ?? bleManager.connectionState;
+    final isBleConnected = connectionState == BleConnectionState.connected ||
+        connectionState == BleConnectionState.streaming;
 
     final latestSession = sleepState.sessions.isNotEmpty ? sleepState.sessions.first : null;
 

@@ -9,6 +9,11 @@ final polarBleManagerProvider = Provider<PolarBleManager>((ref) {
   return manager;
 });
 
+final bleConnectionStateProvider = StreamProvider<BleConnectionState>((ref) {
+  final manager = ref.watch(polarBleManagerProvider);
+  return manager.stateStream;
+});
+
 final sedentaryEngineProvider = Provider<SedentaryEngine>((ref) {
   final engine = SedentaryEngine();
   final bleManager = ref.watch(polarBleManagerProvider);

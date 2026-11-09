@@ -274,6 +274,9 @@ class PolarBleManager {
       final lastBat = await _database.getSetting('last_battery_level');
       if (lastBat != null) {
         _cachedBatteryLevel = int.tryParse(lastBat);
+        if (_cachedBatteryLevel != null) {
+          _safeAdd(_batteryStreamController, _cachedBatteryLevel!);
+        }
       }
       debugPrint('[BLE] Loaded paired device: $_pairedDeviceId ($_pairedDeviceName), cachedBat: $_cachedBatteryLevel');
 
@@ -513,112 +516,94 @@ class PolarBleManager {
     _isStartingStreams = true;
 
     try {
-      debugPrint('[BLE] Querying available online streams for $deviceId');
-      Set<PolarDataType> availableTypes = {};
+      debugPrint('[BLE] Starting sensor streams for $deviceId');
+
+      // Cleanly cancel any previous subscriptions before starting to avoid duplicate GATT hooks
+      _accSub?.cancel();
+      _accSub = null;
+      _ppiSub?.cancel();
+      _ppiSub = null;
+      _hrSub?.cancel();
+      _hrSub = null;
+
+      if (_connectedDeviceId != deviceId) return;
+
+      // 1. Optical Heart Rate PPI Stream (Instantaneous optical HR + pulse intervals)
+      // This is the primary optical measurement of Polar Verity Sense
       try {
-        availableTypes = await _polar
-            .getAvailableOnlineStreamDataTypes(deviceId)
-            .timeout(const Duration(seconds: 4));
-        debugPrint('[BLE] Available types: $availableTypes');
+        debugPrint('[BLE] Starting Optical PPI stream for $deviceId');
+        _ppiSub = _polar.startPpiStreaming(deviceId).listen(
+          (ppiData) {
+            _lastSampleReceivedTime = DateTime.now();
+            _safeAdd(_ppiStreamController, ppiData);
+            for (final sample in ppiData.samples) {
+              if (sample.hr > 0 && sample.hr < 250) {
+                _updateCurrentHr(sample.hr);
+              }
+            }
+          },
+          onError: (err) {
+            debugPrint('[BLE] PPI stream error: $err');
+            _ppiSub?.cancel();
+            _ppiSub = null;
+          },
+          cancelOnError: false,
+        );
       } catch (e) {
-        debugPrint('[BLE] getAvailableOnlineStreamDataTypes fallback (error or timeout): $e');
-        // Graceful default for Polar Verity Sense & H10
-        availableTypes = {PolarDataType.hr, PolarDataType.ppi, PolarDataType.acc};
+        debugPrint('[BLE] Error starting PPI stream: $e');
+        _ppiSub = null;
       }
 
+      // Stagger GATT writes by 250ms so Android Bluetooth stack does not collide (prevents status 133 / GATT crash)
+      await Future.delayed(const Duration(milliseconds: 250));
       if (_connectedDeviceId != deviceId) return;
 
-      // 1. Heart Rate Stream (Standard Bluetooth LE Heart Rate Service 0x180D)
-      if (availableTypes.contains(PolarDataType.hr) && _hrSub == null) {
-        try {
-          debugPrint('[BLE] Starting HR stream for $deviceId');
-          _hrSub = _polar.startHrStreaming(deviceId).listen(
-            (hrData) {
-              _lastSampleReceivedTime = DateTime.now();
-              for (final sample in hrData.samples) {
-                if (sample.hr > 0 && sample.hr < 250) {
-                  _updateCurrentHr(sample.hr);
-                }
+      // 2. Accelerometer Stream (Native Polar 52Hz / 8G default - 100% compatible across all firmware without SDK mode)
+      try {
+        debugPrint('[BLE] Starting native ACC stream for $deviceId');
+        _accSub = _polar.startAccStreaming(deviceId).listen(
+          (data) {
+            _lastSampleReceivedTime = DateTime.now();
+            _safeAdd(_accStreamController, data);
+          },
+          onError: (err) {
+            debugPrint('[BLE] ACC stream error: $err');
+            _accSub?.cancel();
+            _accSub = null;
+          },
+          cancelOnError: false,
+        );
+      } catch (e) {
+        debugPrint('[BLE] Error starting ACC stream: $e');
+        _accSub = null;
+      }
+
+      // Stagger GATT writes before starting standard HR stream
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (_connectedDeviceId != deviceId) return;
+
+      // 3. Heart Rate Stream (Standard Bluetooth LE Heart Rate Service 0x180D)
+      try {
+        debugPrint('[BLE] Starting standard HR stream for $deviceId');
+        _hrSub = _polar.startHrStreaming(deviceId).listen(
+          (hrData) {
+            _lastSampleReceivedTime = DateTime.now();
+            for (final sample in hrData.samples) {
+              if (sample.hr > 0 && sample.hr < 250) {
+                _updateCurrentHr(sample.hr);
               }
-            },
-            onError: (err) {
-              debugPrint('[BLE] HR stream error: $err');
-              _hrSub?.cancel();
-              _hrSub = null;
-            },
-            cancelOnError: false,
-          );
-        } catch (e) {
-          debugPrint('[BLE] Error starting HR stream: $e');
-          _hrSub = null;
-        }
-      }
-
-      // Stagger GATT writes by 300ms so Android / iOS Bluetooth stack does not collide (prevents status 133 / GATT crash)
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (_connectedDeviceId != deviceId) return;
-
-      // 2. Optical Heart Rate PPI Stream (Pulse-to-Pulse intervals with instantaneous optical HR)
-      if (availableTypes.contains(PolarDataType.ppi) && _ppiSub == null) {
-        try {
-          debugPrint('[BLE] Starting PPI stream for $deviceId');
-          _ppiSub = _polar.startPpiStreaming(deviceId).listen(
-            (ppiData) {
-              _lastSampleReceivedTime = DateTime.now();
-              _safeAdd(_ppiStreamController, ppiData);
-              // Only fallback to PPI HR if the standard HR stream is not running
-              if (_hrSub == null) {
-                for (final sample in ppiData.samples) {
-                  if (sample.hr > 0 && sample.hr < 250) {
-                    _updateCurrentHr(sample.hr);
-                  }
-                }
-              }
-            },
-            onError: (err) {
-              debugPrint('[BLE] PPI stream error: $err');
-              _ppiSub?.cancel();
-              _ppiSub = null;
-            },
-            cancelOnError: false,
-          );
-        } catch (e) {
-          debugPrint('[BLE] Error starting PPI stream: $e');
-          _ppiSub = null;
-        }
-      }
-
-      // Stagger GATT writes before requesting ACC settings
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (_connectedDeviceId != deviceId) return;
-
-      // 3. Accelerometer Stream (Capped to ultra-efficient 26Hz for actigraphy / posture tracking)
-      if (availableTypes.contains(PolarDataType.acc) && _accSub == null) {
-        try {
-          debugPrint('[BLE] Requesting ACC settings for $deviceId');
-          final settings = await _polar
-              .requestStreamSettings(deviceId, PolarDataType.acc)
-              .timeout(const Duration(seconds: 3));
-          final optimalSettings = resolveOptimalAccSettings(settings);
-          debugPrint('[BLE] Starting ACC with optimal 26Hz settings: ${optimalSettings.settings}');
-
-          _accSub = _polar.startAccStreaming(deviceId, settings: optimalSettings).listen(
-            (data) {
-              _lastSampleReceivedTime = DateTime.now();
-              _safeAdd(_accStreamController, data);
-            },
-            onError: (err) {
-              debugPrint('[BLE] Optimal ACC error: $err, falling back to explicit 26Hz');
-              _accSub?.cancel();
-              _accSub = null;
-              _startDefaultAccStream(deviceId);
-            },
-            cancelOnError: false,
-          );
-        } catch (e) {
-          debugPrint('[BLE] Error getting ACC settings: $e, falling back to explicit 26Hz');
-          _startDefaultAccStream(deviceId);
-        }
+            }
+          },
+          onError: (err) {
+            debugPrint('[BLE] HR stream error: $err');
+            _hrSub?.cancel();
+            _hrSub = null;
+          },
+          cancelOnError: false,
+        );
+      } catch (e) {
+        debugPrint('[BLE] Error starting HR stream: $e');
+        _hrSub = null;
       }
 
       _lastSampleReceivedTime = DateTime.now();
@@ -631,11 +616,11 @@ class PolarBleManager {
     }
   }
 
-  /// Selects the ultra-efficient 26Hz actigraphy sample rate instead of high-frequency rates,
+  /// Selects the native 52Hz actigraphy sample rate instead of high-frequency rates,
   /// completely eliminating GC pauses, event channel queueing, and battery drain.
   static PolarSensorSetting resolveOptimalAccSettings([PolarSensorSetting? available]) {
     return PolarSensorSetting({
-      PolarSettingType.sampleRate: 26,
+      PolarSettingType.sampleRate: 52,
       PolarSettingType.range: 8,
     });
   }
@@ -643,20 +628,14 @@ class PolarBleManager {
   void _startDefaultAccStream(String deviceId) {
     if (_accSub != null || _connectedDeviceId != deviceId) return;
     try {
-      debugPrint('[BLE] Starting explicit 26Hz ACC stream for $deviceId');
-      _accSub = _polar.startAccStreaming(
-        deviceId,
-        settings: PolarSensorSetting({
-          PolarSettingType.sampleRate: 26, // Native Polar Verity Sense low-power rate
-          PolarSettingType.range: 8,
-        }),
-      ).listen(
+      debugPrint('[BLE] Starting fallback native ACC stream for $deviceId');
+      _accSub = _polar.startAccStreaming(deviceId).listen(
         (data) {
           _lastSampleReceivedTime = DateTime.now();
           _safeAdd(_accStreamController, data);
         },
         onError: (err) {
-          debugPrint('[BLE] ACC default 26Hz stream error: $err');
+          debugPrint('[BLE] ACC default stream error: $err');
           _accSub?.cancel();
           _accSub = null;
         },
@@ -678,13 +657,13 @@ class PolarBleManager {
       if (_isMockMode) return;
 
       final now = DateTime.now();
-      // Watchdog timeout is 15 seconds, with a 30-second cooldown between healing attempts
+      // Watchdog timeout is 20 seconds, with a 30-second cooldown between healing attempts
       if (_lastSampleReceivedTime != null &&
-          now.difference(_lastSampleReceivedTime!) > const Duration(seconds: 15)) {
+          now.difference(_lastSampleReceivedTime!) > const Duration(seconds: 20)) {
         if (_lastHealingAttempt == null ||
             now.difference(_lastHealingAttempt!) > const Duration(seconds: 30)) {
           _lastHealingAttempt = now;
-          debugPrint('[BLE Watchdog] Stream stalled for >15s! Attempting auto-healing for $deviceId...');
+          debugPrint('[BLE Watchdog] Stream stalled for >20s! Attempting auto-healing for $deviceId...');
           _healSensorStreams(deviceId);
         }
       }
