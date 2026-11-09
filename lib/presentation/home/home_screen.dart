@@ -427,11 +427,15 @@ class HomeScreen extends ConsumerWidget {
       children: [
         Icon(icon, size: 16, color: color),
         const SizedBox(width: 8),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.white60),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Colors.white60),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-        const Spacer(),
+        const SizedBox(width: 6),
         Text(
           value,
           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),

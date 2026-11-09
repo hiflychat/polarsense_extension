@@ -117,7 +117,7 @@ class AppStrings {
   String get totalSleep => isZh ? '总睡眠时长' : 'Total Sleep';
   String get restingHrLowest => isZh ? '静息心率' : 'Resting HR';
   String get restingHrDesc => isZh ? '夜间最低 10% 均值' : 'Overnight lowest 10%';
-  String get hrvTitle => isZh ? '心率变异性 (RMSSD)' : 'HRV (RMSSD)';
+  String get hrvTitle => isZh ? '心率变异性' : 'HRV';
   String get hrvDesc => isZh ? '自主神经系统恢复指标' : 'Autonomic recovery';
   String get healthSync => isZh ? '健康生态同步' : 'Health Sync';
   String get synced => isZh ? '已同步' : 'Synced';
