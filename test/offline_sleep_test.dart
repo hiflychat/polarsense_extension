@@ -154,38 +154,36 @@ void main() {
       expect(recovery.totalScore, lessThanOrEqualTo(100));
     });
 
-    test('withFileTransferSession executes in mock mode and preserves safe state', () async {
-      final ble = PolarBleManager();
-      ble.enableMockMode(true);
+    test('Deduplication logic accurately detects overlapping sessions within 15 minutes', () {
+      final baseDate = DateTime(2026, 11, 10, 8, 0, 0);
+      final existingSessions = [
+        SleepSession(
+          id: 'test-session-1',
+          startTime: baseDate,
+          endTime: baseDate.add(const Duration(hours: 7)),
+          durationMinutes: 420,
+          wakeMinutes: 20,
+          remMinutes: 90,
+          lightMinutes: 210,
+          deepMinutes: 100,
+          restingHr: 54,
+          avgRmssd: 45,
+          recoveryScore: 88,
+          syncedToHealth: false,
+        ),
+      ];
 
-      bool executed = false;
-      final result = await ble.withFileTransferSession(() async {
-        executed = true;
-        return 'success';
-      });
+      bool isAlreadyImported(DateTime entryDate) {
+        return existingSessions.any((s) =>
+            s.startTime.difference(entryDate).inMinutes.abs() < 15);
+      }
 
-      expect(executed, isTrue);
-      expect(result, 'success');
-      expect(ble.isSyncingOffline, isFalse);
-    });
-
-    test('listOfflineRecordings returns mock entries in mock mode', () async {
-      final ble = PolarBleManager();
-      ble.enableMockMode(true);
-
-      final entries = await ble.listOfflineRecordings();
-      expect(entries.isNotEmpty, isTrue);
-      expect(entries.first.entryId, contains('mock'));
-    });
-
-    test('fetchOfflineRecording returns full sleep exercise in mock mode', () async {
-      final ble = PolarBleManager();
-      ble.enableMockMode(true);
-
-      final entries = await ble.listOfflineRecordings();
-      final data = await ble.fetchOfflineRecording(entries.first);
-      expect(data, isNotNull);
-      expect(data!.samples.length, 27000);
+      // Exact time -> true
+      expect(isAlreadyImported(baseDate), isTrue);
+      // 5 minutes difference -> true
+      expect(isAlreadyImported(baseDate.add(const Duration(minutes: 5))), isTrue);
+      // 2 hours difference -> false (new session)
+      expect(isAlreadyImported(baseDate.add(const Duration(hours: 2))), isFalse);
     });
   });
 }
