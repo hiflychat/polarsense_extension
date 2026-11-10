@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../core/ble/polar_ble_manager.dart';
 import '../../core/database/models/sleep_record.dart';
 import '../../core/localization/app_strings.dart';
 import '../../features/health_sync/health_export_service.dart';
+import '../../features/sedentary/sedentary_notifier.dart';
 import '../../features/sleep/recovery_score_calculator.dart';
 import '../../features/sleep/sleep_session_controller.dart';
 import '../theme/app_theme.dart';
