@@ -150,6 +150,9 @@ class AppStrings {
   String get offlineRecordingIdle => isZh ? '手环未在录制' : 'Sensor recording is idle';
   String get recordingStatus => isZh ? '正在独立录制' : 'Recording';
   String get readingDeviceExercises => isZh ? '正在读取手环存储列表...' : 'Checking Sense storage...';
+  String get preparingSyncChannel => isZh ? '正在暂停实时流，释放手环传输通道...' : 'Pausing streams & releasing BLE transfer channel...';
+  String get allExercisesAlreadySynced => isZh ? '手环内记录此前已全部同步完毕，已展示最新睡眠分析。' : 'All sensor records already synced. Displaying latest analysis.';
+  String get pleaseConnectSenseFirst => isZh ? '请先连接手环再同步离线数据' : 'Please connect Polar Verity Sense before syncing';
   String get fetchingExerciseSamples => isZh ? '正在高速下载睡眠采样数据...' : 'Downloading sleep samples...';
   String get analyzingSleepEpochs => isZh ? '正在进行 30秒 睡眠分期与 HRV 计算...' : 'Analyzing 30s sleep stages & HRV...';
   String get offlineSyncSuccess => isZh ? '昨夜离线睡眠已成功同步并完成深度分析！' : 'Last night sleep synced and analyzed successfully!';

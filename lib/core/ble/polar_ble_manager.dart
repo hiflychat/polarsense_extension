@@ -76,6 +76,9 @@ class PolarBleManager {
   bool _isOfflineRecording = false;
   bool get isOfflineRecording => _isOfflineRecording;
 
+  bool _isSyncingOffline = false;
+  bool get isSyncingOffline => _isSyncingOffline;
+
   final List<PolarExerciseEntry> _mockStoredExercises = [];
   List<PolarExerciseEntry> get mockStoredExercises => List.unmodifiable(_mockStoredExercises);
 
@@ -214,6 +217,7 @@ class PolarBleManager {
       _isCharging = false;
       _currentHr = null;
       _isOfflineRecording = false;
+      _isSyncingOffline = false;
       _isStartingStreams = false;
       _safeAdd(_offlineRecordingController, false);
       _safeAdd(_chargingStreamController, false);
@@ -654,7 +658,7 @@ class PolarBleManager {
         timer.cancel();
         return;
       }
-      if (_isMockMode) return;
+      if (_isMockMode || _isSyncingOffline) return;
 
       final now = DateTime.now();
       // Watchdog timeout is 20 seconds, with a 30-second cooldown between healing attempts
@@ -854,6 +858,65 @@ class PolarBleManager {
     }
   }
 
+  /// Executes a file-transfer session (listing, downloading) while pausing
+  /// online PMD sensor streams (ACC/PPI/HR).
+  ///
+  /// Polar Verity Sense firmware strictly responds with SYSTEM_BUSY (202) if
+  /// file transfer operations are attempted while PMD streaming is active.
+  /// This session manager cleanly cancels active subscriptions, flushes the
+  /// BLE queue, stops any active offline recording, executes the action,
+  /// and safely restores online streaming afterwards.
+  Future<T> withFileTransferSession<T>(Future<T> Function() action) async {
+    if (_isMockMode) {
+      return await action();
+    }
+
+    if (_connectedDeviceId == null) {
+      debugPrint('[BLE PFTP] Device not connected, cannot start file transfer session');
+      throw Exception('Device not connected');
+    }
+
+    // If already in an active file transfer session, execute directly to prevent nested stream toggling
+    if (_isSyncingOffline) {
+      return await action();
+    }
+
+    final deviceId = _connectedDeviceId!;
+    final wasStreaming = _connectionState == BleConnectionState.streaming;
+    _isSyncingOffline = true;
+
+    try {
+      debugPrint('[BLE PFTP] Pausing online streams for file transfer on $deviceId...');
+      _cancelStreams();
+      _updateState(BleConnectionState.connected);
+
+      // 1. Allow 600ms for in-flight BLE notifications to drain and sensor to settle into GATT idle state
+      await Future.delayed(const Duration(milliseconds: 600));
+
+      // 2. Check if the sensor has an ongoing recording and finalize it
+      try {
+        final recStatus = await checkOfflineRecordingStatus();
+        if (recStatus != null && recStatus.ongoing) {
+          debugPrint('[BLE PFTP] Active recording detected (${recStatus.entryId}). Stopping recording before sync...');
+          await stopOfflineRecording();
+          await Future.delayed(const Duration(milliseconds: 800));
+        }
+      } catch (e) {
+        debugPrint('[BLE PFTP] Non-fatal check/stop recording error: $e');
+      }
+
+      // 3. Execute the caller's action
+      return await action();
+    } finally {
+      _isSyncingOffline = false;
+      if (_connectedDeviceId == deviceId && wasStreaming) {
+        debugPrint('[BLE PFTP] Resuming online sensor streams on $deviceId...');
+        await Future.delayed(const Duration(milliseconds: 500));
+        await _startSensorStreams(deviceId);
+      }
+    }
+  }
+
   /// List all offline exercise entries stored in the sensor's 16MB flash memory
   Future<List<PolarExerciseEntry>> listOfflineRecordings() async {
     if (_isMockMode) {
@@ -872,13 +935,33 @@ class PolarBleManager {
       return [];
     }
 
+    if (!_isSyncingOffline) {
+      return await withFileTransferSession(() => _listOfflineRecordingsInternal());
+    } else {
+      return await _listOfflineRecordingsInternal();
+    }
+  }
+
+  Future<List<PolarExerciseEntry>> _listOfflineRecordingsInternal() async {
+    final deviceId = _connectedDeviceId;
+    if (deviceId == null) return [];
+
     try {
-      final entries = await _polar.listExercises(_connectedDeviceId!).timeout(const Duration(seconds: 8));
-      debugPrint('[BLE] Found ${entries.length} offline recordings on $_connectedDeviceId');
+      debugPrint('[BLE PFTP] Requesting exercise list from $deviceId...');
+      final entries = await _polar.listExercises(deviceId).timeout(const Duration(seconds: 20));
+      debugPrint('[BLE PFTP] Successfully found ${entries.length} offline recordings on $deviceId');
       return entries;
     } catch (e) {
-      debugPrint('[BLE] Error listing offline recordings: $e');
-      return [];
+      debugPrint('[BLE PFTP] Initial attempt to list exercises failed: $e, retrying after 1.5s...');
+      await Future.delayed(const Duration(milliseconds: 1500));
+      try {
+        final entries = await _polar.listExercises(deviceId).timeout(const Duration(seconds: 20));
+        debugPrint('[BLE PFTP] Retry found ${entries.length} offline recordings on $deviceId');
+        return entries;
+      } catch (e2) {
+        debugPrint('[BLE PFTP] Error listing offline recordings after retry: $e2');
+        return [];
+      }
     }
   }
 
@@ -894,13 +977,33 @@ class PolarBleManager {
       return null;
     }
 
+    if (!_isSyncingOffline) {
+      return await withFileTransferSession(() => _fetchOfflineRecordingInternal(entry));
+    } else {
+      return await _fetchOfflineRecordingInternal(entry);
+    }
+  }
+
+  Future<PolarExerciseData?> _fetchOfflineRecordingInternal(PolarExerciseEntry entry) async {
+    final deviceId = _connectedDeviceId;
+    if (deviceId == null) return null;
+
     try {
-      final data = await _polar.fetchExercise(_connectedDeviceId!, entry).timeout(const Duration(seconds: 30));
-      debugPrint('[BLE] Fetched exercise: ${data.samples.length} samples, interval: ${data.interval}s');
+      debugPrint('[BLE PFTP] Downloading exercise ${entry.entryId} (${entry.path}, date: ${entry.date})...');
+      final data = await _polar.fetchExercise(deviceId, entry).timeout(const Duration(seconds: 90));
+      debugPrint('[BLE PFTP] Successfully fetched exercise ${entry.entryId}: ${data.samples.length} samples, interval: ${data.interval}s');
       return data;
     } catch (e) {
-      debugPrint('[BLE] Error fetching exercise data: $e');
-      return null;
+      debugPrint('[BLE PFTP] Initial attempt to fetch exercise failed: $e, retrying after 2s...');
+      await Future.delayed(const Duration(milliseconds: 2000));
+      try {
+        final data = await _polar.fetchExercise(deviceId, entry).timeout(const Duration(seconds: 90));
+        debugPrint('[BLE PFTP] Retry successfully fetched exercise ${entry.entryId}: ${data.samples.length} samples');
+        return data;
+      } catch (e2) {
+        debugPrint('[BLE PFTP] Error fetching exercise data after retry: $e2');
+        return null;
+      }
     }
   }
 

@@ -413,9 +413,21 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
   }
 
   Future<void> _handleOfflineSync(AppStrings strings) async {
+    final bleManager = ref.read(polarBleManagerProvider);
+    if (bleManager.connectionState == BleConnectionState.disconnected && !bleManager.isMockMode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(strings.pleaseConnectSenseFirst),
+          backgroundColor: AppTheme.polarRed,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isOfflineSyncing = true);
 
-    String progressMessage = strings.readingDeviceExercisesStep;
+    String progressMessage = strings.preparingSyncChannel;
+    StateSetter? modalSetState;
 
     showModalBottomSheet(
       context: context,
@@ -428,6 +440,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            modalSetState = setModalState;
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
               child: Column(
@@ -464,7 +477,12 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
       },
     );
 
-    final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep();
+    final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep(
+      onProgress: (status) {
+        progressMessage = status;
+        modalSetState?.call(() {});
+      },
+    );
 
     if (mounted) {
       Navigator.of(context, rootNavigator: true).pop();

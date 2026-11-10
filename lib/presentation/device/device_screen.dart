@@ -595,29 +595,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                         onPressed: isConnected
-                            ? () async {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(strings.readingDeviceExercises),
-                                    duration: const Duration(seconds: 2),
-                                  ),
-                                );
-                                final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep();
-                                if (context.mounted) {
-                                  if (session != null) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(strings.offlineSyncSuccess),
-                                        backgroundColor: AppTheme.recoveryGood,
-                                      ),
-                                    );
-                                  } else {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(strings.noExercisesFound)),
-                                    );
-                                  }
-                                }
-                              }
+                            ? () => _handleDeviceOfflineSync(context, ref, strings)
                             : null,
                         icon: const Icon(Icons.download_for_offline, size: 16),
                         label: Text(
@@ -821,5 +799,88 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         );
       },
     );
+  }
+
+  Future<void> _handleDeviceOfflineSync(
+      BuildContext context, WidgetRef ref, AppStrings strings) async {
+    String progressMessage = strings.preparingSyncChannel;
+    StateSetter? modalSetState;
+
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: AppTheme.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            modalSetState = setModalState;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      color: AppTheme.polarCyan,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    strings.syncOfflineSleep,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    progressMessage,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13, color: Colors.white70),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep(
+      onProgress: (status) {
+        progressMessage = status;
+        modalSetState?.call(() {});
+      },
+    );
+
+    if (context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+      if (session != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${strings.offlineSyncSuccess} (${session.durationFormatted}, ${strings.lastNightRecovery}: ${session.recoveryScore})',
+            ),
+            backgroundColor: AppTheme.recoveryGood,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(strings.noExercisesFound),
+            backgroundColor: AppTheme.darkCard,
+          ),
+        );
+      }
+    }
   }
 }

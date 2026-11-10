@@ -153,5 +153,39 @@ void main() {
       expect(recovery.totalScore, greaterThanOrEqualTo(80));
       expect(recovery.totalScore, lessThanOrEqualTo(100));
     });
+
+    test('withFileTransferSession executes in mock mode and preserves safe state', () async {
+      final ble = PolarBleManager();
+      ble.enableMockMode(true);
+
+      bool executed = false;
+      final result = await ble.withFileTransferSession(() async {
+        executed = true;
+        return 'success';
+      });
+
+      expect(executed, isTrue);
+      expect(result, 'success');
+      expect(ble.isSyncingOffline, isFalse);
+    });
+
+    test('listOfflineRecordings returns mock entries in mock mode', () async {
+      final ble = PolarBleManager();
+      ble.enableMockMode(true);
+
+      final entries = await ble.listOfflineRecordings();
+      expect(entries.isNotEmpty, isTrue);
+      expect(entries.first.entryId, contains('mock'));
+    });
+
+    test('fetchOfflineRecording returns full sleep exercise in mock mode', () async {
+      final ble = PolarBleManager();
+      ble.enableMockMode(true);
+
+      final entries = await ble.listOfflineRecordings();
+      final data = await ble.fetchOfflineRecording(entries.first);
+      expect(data, isNotNull);
+      expect(data!.samples.length, 27000);
+    });
   });
 }
