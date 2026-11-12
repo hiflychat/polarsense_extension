@@ -47,7 +47,12 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                 : const Icon(Icons.download_for_offline, color: AppTheme.polarCyan),
             onPressed: _isOfflineSyncing ? null : () => _handleOfflineSync(strings),
           ),
-          if (selectedSession != null)
+          if (selectedSession != null) ...[
+            IconButton(
+              tooltip: strings.deleteSessionTitle,
+              icon: const Icon(Icons.delete_outline, color: Colors.white54),
+              onPressed: () => _confirmDeleteSession(selectedSession, strings),
+            ),
             IconButton(
               tooltip: strings.exportTooltip,
               icon: _isSyncing
@@ -64,6 +69,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                     ),
               onPressed: _isSyncing ? null : () => _handleSync(selectedSession, strings),
             ),
+          ],
         ],
       ),
       body: sleepState.isLoading
@@ -76,13 +82,22 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // 1. Session Picker (Horizontal Date Pills)
-                      _buildSessionPicker(sleepState.sessions, selectedSession),
+                      _buildSessionPicker(sleepState.sessions, selectedSession, strings),
 
                       const SizedBox(height: 16),
 
                       if (selectedSession != null) ...[
                         // 2. Recovery Gauge & Breakdown
-                        _buildRecoveryHeader(selectedSession, strings),
+                        _buildRecoveryHeader(
+                          selectedSession,
+                          sleepState.baseline14DayRmssd,
+                          strings,
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // Data Source & Mode Explanation Banner
+                        _buildDataSourceBanner(selectedSession, strings),
 
                         const SizedBox(height: 16),
 
@@ -98,6 +113,11 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
 
                         // 5. Biometric Grid
                         _buildMetricsGrid(selectedSession, strings),
+
+                        const SizedBox(height: 16),
+
+                        // 6. Biometric Terminology Legend (图注)
+                        _buildGlossaryCard(strings),
                       ],
                     ],
                   ),
@@ -171,7 +191,11 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     );
   }
 
-  Widget _buildSessionPicker(List<SleepSession> sessions, SleepSession? selected) {
+  Widget _buildSessionPicker(
+    List<SleepSession> sessions,
+    SleepSession? selected,
+    AppStrings strings,
+  ) {
     final dayFormat = DateFormat('EEE, MMM d');
 
     return SizedBox(
@@ -183,9 +207,12 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
         itemBuilder: (context, index) {
           final s = sessions[index];
           final isSelected = selected?.id == s.id;
+          final labelText = strings.isZh
+              ? _formatChineseDate(s.startTime)
+              : dayFormat.format(s.startTime);
 
           return ChoiceChip(
-            label: Text(dayFormat.format(s.startTime)),
+            label: Text(labelText),
             selected: isSelected,
             selectedColor: AppTheme.polarCyan.withOpacity(0.25),
             labelStyle: TextStyle(
@@ -203,14 +230,29 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     );
   }
 
-  Widget _buildRecoveryHeader(SleepSession session, AppStrings strings) {
+  String _formatChineseDate(DateTime dt) {
+    const weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    final wd = weekdays[(dt.weekday - 1).clamp(0, 6)];
+    return '${dt.month}月${dt.day}日 $wd';
+  }
+
+  Widget _buildRecoveryHeader(
+    SleepSession session,
+    double baseline14DayRmssd,
+    AppStrings strings,
+  ) {
+    final hasHrv = session.hasHrvData;
     final breakdown = RecoveryScoreCalculator.calculate(
-      durationMinutes: session.durationMinutes,
+      durationMinutes: session.effectiveSleepMinutes,
       deepMinutes: session.deepMinutes,
       remMinutes: session.remMinutes,
       nightRmssd: session.avgRmssd,
-      baseline14DayRmssd: 42.0,
+      baseline14DayRmssd: baseline14DayRmssd,
+      hasHrvData: hasHrv,
     );
+
+    final durationWeight = hasHrv ? 30 : 50;
+    final stageWeight = hasHrv ? 30 : 50;
 
     return Card(
       child: Padding(
@@ -219,14 +261,18 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
           children: [
             Row(
               children: [
-                RecoveryGauge(score: session.recoveryScore, size: 140),
+                RecoveryGauge(
+                  score: session.recoveryScore,
+                  size: 140,
+                  subtitle: session.formattedDuration(isZh: strings.isZh),
+                ),
                 const SizedBox(width: 20),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        breakdown.statusDescription,
+                        strings.recoveryStatusLabel(session.recoveryScore),
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -234,11 +280,22 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _buildScoreFactorRow(strings.durationFactor, '${breakdown.durationScore.round()}/100'),
+                      _buildScoreFactorRow(
+                        strings.durationFactorWeighted(durationWeight),
+                        '${breakdown.durationScore.round()}/100',
+                      ),
                       const SizedBox(height: 4),
-                      _buildScoreFactorRow(strings.stageRatioFactor, '${breakdown.stageRatioScore.round()}/100'),
+                      _buildScoreFactorRow(
+                        strings.stageRatioFactorWeighted(stageWeight),
+                        '${breakdown.stageRatioScore.round()}/100',
+                      ),
                       const SizedBox(height: 4),
-                      _buildScoreFactorRow(strings.hrvFactor, '${breakdown.hrvScore.round()}/100'),
+                      _buildScoreFactorRow(
+                        hasHrv ? strings.hrvFactor : strings.hrvFactorUnavailable,
+                        hasHrv
+                            ? '${breakdown.hrvScore.round()}/100'
+                            : strings.hrvUnavailableShort,
+                      ),
                     ],
                   ),
                 ),
@@ -250,11 +307,65 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
     );
   }
 
+  Widget _buildDataSourceBanner(SleepSession session, AppStrings strings) {
+    final isHrOnly = session.isHrOnlyOffline;
+    final badgeColor = isHrOnly ? Colors.amber : AppTheme.polarCyan;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: badgeColor.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: badgeColor.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isHrOnly ? Icons.info_outline : Icons.verified_outlined,
+                size: 16,
+                color: badgeColor,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  strings.dataSourceLabel(session.dataSource),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: badgeColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (isHrOnly) ...[
+            const SizedBox(height: 6),
+            Text(
+              strings.hrOnlyModeNotice,
+              style: const TextStyle(fontSize: 11, color: Colors.white70, height: 1.4),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildScoreFactorRow(String label, String value) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Colors.white54),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 8),
         Text(value, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
       ],
     );
@@ -339,6 +450,7 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
 
   Widget _buildMetricsGrid(SleepSession session, AppStrings strings) {
     final hours = (session.durationMinutes / 60.0).toStringAsFixed(1);
+    final hasHrv = session.hasHrvData;
 
     return Column(
       children: [
@@ -351,7 +463,10 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                 title: strings.totalSleep,
                 value: hours,
                 unit: strings.hrs,
-                subtitle: '${session.durationMinutes} ${strings.min}',
+                subtitle: strings.actualSleepEfficiencySub(
+                  session.actualSleepMinutes,
+                  session.sleepEfficiency,
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -373,11 +488,11 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
             Expanded(
               child: MetricCard(
                 icon: Icons.show_chart,
-                iconColor: AppTheme.recoveryGood,
+                iconColor: hasHrv ? AppTheme.recoveryGood : Colors.amber,
                 title: strings.hrvTitle,
-                value: '${session.avgRmssd.round()}',
-                unit: strings.ms,
-                subtitle: strings.hrvDesc,
+                value: hasHrv ? '${session.avgRmssd.round()}' : strings.hrvUnavailableShort,
+                unit: hasHrv ? strings.ms : '',
+                subtitle: hasHrv ? strings.hrvDesc : strings.hrvUnavailableDesc,
               ),
             ),
             const SizedBox(width: 12),
@@ -388,13 +503,101 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
                 title: strings.healthSync,
                 value: session.syncedToHealth ? strings.synced : strings.localOnly,
                 unit: '',
-                subtitle: 'HealthKit / Health Connect',
+                subtitle: strings.healthEcosystemSub,
               ),
             ),
           ],
         ),
       ],
     );
+  }
+
+  Widget _buildGlossaryCard(AppStrings strings) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.menu_book_outlined, color: AppTheme.polarCyan, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  strings.metricGlossaryTitle,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ...strings.glossaryItems.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.term,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.polarCyan,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.desc,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white60,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteSession(SleepSession session, AppStrings strings) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkCard,
+        title: Text(strings.deleteSessionTitle, style: const TextStyle(color: Colors.white)),
+        content: Text(
+          strings.deleteSessionConfirm,
+          style: const TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(strings.cancel, style: const TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(strings.deleteLabel, style: const TextStyle(color: AppTheme.polarRed)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await ref.read(sleepHistoryProvider.notifier).deleteSession(session.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(strings.sessionDeleted)),
+        );
+      }
+    }
   }
 
   Future<void> _handleSync(SleepSession session, AppStrings strings) async {

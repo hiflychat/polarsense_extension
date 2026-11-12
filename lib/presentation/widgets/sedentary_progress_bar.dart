@@ -131,7 +131,9 @@ class SedentaryProgressBar extends ConsumerWidget {
                     ],
                   ),
                   Text(
-                    '${status.activeWalkingSeconds} / 60s',
+                    strings.isZh
+                        ? '${status.activeWalkingSeconds} / 60秒'
+                        : '${status.activeWalkingSeconds} / 60s',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -163,6 +165,11 @@ class SedentaryProgressBar extends ConsumerWidget {
                 color: isAlerting ? AppTheme.recoveryLow : Colors.white54,
                 fontWeight: isAlerting ? FontWeight.w600 : FontWeight.normal,
               ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              strings.vmuSedentaryLegend,
+              style: const TextStyle(fontSize: 10, color: Colors.white38),
             ),
           ],
         ),

@@ -42,14 +42,21 @@ class BackgroundService {
 
   bool _isRunning = false;
   bool get isRunning => _isRunning;
+  bool _isZh = true;
+
+  void setLanguage({required bool isZh}) {
+    _isZh = isZh;
+  }
 
   Future<void> initialize() async {
     try {
       FlutterForegroundTask.init(
         androidNotificationOptions: AndroidNotificationOptions(
           channelId: 'polarsense_foreground_service',
-          channelName: 'PolarSense Live Tracker',
-          channelDescription: 'Maintains continuous Bluetooth connection with Polar Verity Sense.',
+          channelName: _isZh ? '晴雨脉后台保活监测' : 'PolarSense Live Tracker',
+          channelDescription: _isZh
+              ? '持续保持与 Polar Verity Sense 手环的蓝牙连接与久坐姿态分析。'
+              : 'Maintains continuous Bluetooth connection with Polar Verity Sense.',
           channelImportance: NotificationChannelImportance.LOW,
           priority: NotificationPriority.LOW,
         ),
@@ -90,8 +97,10 @@ class BackgroundService {
 
       final serviceRequest = await FlutterForegroundTask.startService(
         serviceId: 256,
-        notificationTitle: 'PolarSense Active Monitoring',
-        notificationText: 'Tracking sedentary posture & sensor signals in real-time',
+        notificationTitle: _isZh ? '晴雨脉实时健康监测运行中' : 'PolarSense Active Monitoring',
+        notificationText: _isZh
+            ? '正在后台实时追踪静坐状态与传感器信号'
+            : 'Tracking sedentary posture & sensor signals in real-time',
         notificationIcon: const NotificationIcon(
           metaDataName: 'com.polarsense.extension.NOTIFICATION_ICON',
         ),

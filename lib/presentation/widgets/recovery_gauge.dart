@@ -1,8 +1,10 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/localization/app_strings.dart';
 import '../theme/app_theme.dart';
 
-class RecoveryGauge extends StatelessWidget {
+class RecoveryGauge extends ConsumerWidget {
   final int score;
   final double size;
   final String? subtitle;
@@ -15,7 +17,8 @@ class RecoveryGauge extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = ref.watch(stringsProvider);
     final scoreColor = AppTheme.getRecoveryColor(score);
 
     return SizedBox(
@@ -45,12 +48,12 @@ class RecoveryGauge extends StatelessWidget {
                 ),
               ),
               Text(
-                'RECOVERY',
+                strings.recoveryBadgeLabel,
                 style: TextStyle(
-                  fontSize: size * 0.08,
+                  fontSize: size * 0.085,
                   fontWeight: FontWeight.w700,
                   color: scoreColor,
-                  letterSpacing: 1.5,
+                  letterSpacing: strings.isZh ? 0.5 : 1.5,
                 ),
               ),
               if (subtitle != null) ...[

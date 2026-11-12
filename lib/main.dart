@@ -92,13 +92,14 @@ void main() async {
   );
 }
 
-class PolarSenseApp extends StatelessWidget {
+class PolarSenseApp extends ConsumerWidget {
   const PolarSenseApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = ref.watch(stringsProvider);
     return MaterialApp(
-      title: '晴雨脉',
+      title: strings.appTitle,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const MainNavigationShell(),

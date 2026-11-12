@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/localization/app_strings.dart';
 import '../theme/app_theme.dart';
 
-class PulseIndicator extends StatefulWidget {
+class PulseIndicator extends ConsumerStatefulWidget {
   final int? hr;
   final bool isConnected;
 
@@ -12,10 +14,10 @@ class PulseIndicator extends StatefulWidget {
   });
 
   @override
-  State<PulseIndicator> createState() => _PulseIndicatorState();
+  ConsumerState<PulseIndicator> createState() => _PulseIndicatorState();
 }
 
-class _PulseIndicatorState extends State<PulseIndicator>
+class _PulseIndicatorState extends ConsumerState<PulseIndicator>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
@@ -68,6 +70,8 @@ class _PulseIndicatorState extends State<PulseIndicator>
 
   @override
   Widget build(BuildContext context) {
+    final strings = ref.watch(stringsProvider);
+
     if (!widget.isConnected) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -75,14 +79,14 @@ class _PulseIndicatorState extends State<PulseIndicator>
           color: Colors.red.withOpacity(0.15),
           borderRadius: BorderRadius.circular(16),
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.bluetooth_disabled, color: Colors.redAccent, size: 14),
-            SizedBox(width: 6),
+            const Icon(Icons.bluetooth_disabled, color: Colors.redAccent, size: 14),
+            const SizedBox(width: 6),
             Text(
-              'Disconnected',
-              style: TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.w600),
+              strings.disconnected,
+              style: const TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -111,7 +115,9 @@ class _PulseIndicatorState extends State<PulseIndicator>
           ),
           const SizedBox(width: 6),
           Text(
-            widget.hr != null && widget.hr! > 0 ? '${widget.hr} BPM' : 'Connected',
+            widget.hr != null && widget.hr! > 0
+                ? '${widget.hr} ${strings.bpm}'
+                : strings.connected,
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,

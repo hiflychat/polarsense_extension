@@ -22,9 +22,18 @@ class HealthDatabase {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        "ALTER TABLE sleep_sessions ADD COLUMN dataSource TEXT NOT NULL DEFAULT 'live_acc_ppi'",
+      );
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -41,7 +50,8 @@ class HealthDatabase {
         restingHr REAL NOT NULL,
         avgRmssd REAL NOT NULL,
         recoveryScore INTEGER NOT NULL,
-        syncedToHealth INTEGER NOT NULL DEFAULT 0
+        syncedToHealth INTEGER NOT NULL DEFAULT 0,
+        dataSource TEXT NOT NULL DEFAULT 'live_acc_ppi'
       )
     ''');
 
@@ -139,13 +149,31 @@ class HealthDatabase {
     );
   }
 
+  Future<void> deleteSleepSession(String sessionId) async {
+    final db = await database;
+    await db.delete(
+      'sleep_epochs',
+      where: 'sessionId = ?',
+      whereArgs: [sessionId],
+    );
+    await db.delete(
+      'sleep_sessions',
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
   // --- Baseline HRV & RHR Queries ---
 
+  /// Returns 14-day rolling baseline RMSSD from qualifying overnight sessions (>= 120 min)
+  /// that contain genuine beat-to-beat PPI HRV measurements (excludes HR-only offline proxies).
   Future<double> get14DayBaselineRmssd() async {
     final db = await database;
     final maps = await db.query(
       'sleep_sessions',
       columns: ['avgRmssd'],
+      where: "durationMinutes >= 120 AND avgRmssd > 0 AND dataSource != ?",
+      whereArgs: [SleepSession.sourceOfflineHrOnly],
       orderBy: 'startTime DESC',
       limit: 14,
     );
@@ -161,11 +189,13 @@ class HealthDatabase {
     return sum / maps.length;
   }
 
+  /// Returns 14-day rolling baseline resting HR from qualifying sleep sessions (>= 120 min).
   Future<double> getBaselineRestingHr() async {
     final db = await database;
     final maps = await db.query(
       'sleep_sessions',
       columns: ['restingHr'],
+      where: 'durationMinutes >= 120 AND restingHr > 30',
       orderBy: 'startTime DESC',
       limit: 14,
     );

@@ -37,6 +37,49 @@ class SleepStagingModel {
     return SleepStage.light;
   }
 
+  /// Classifies a 30-second epoch when ONLY 1Hz/periodic Heart Rate (BPM) is available
+  /// (e.g., Polar Verity Sense Green-LED standalone offline mode without ACC or raw PPI).
+  ///
+  /// Uses personal nocturnal resting HR baseline and within-epoch HR volatility (std & range):
+  /// - Deep Sleep (SWS): lowest HR near nocturnal nadir with minimal sympathetic variability.
+  /// - REM Sleep: mildly elevated HR above resting nadir accompanied by phasic HR variability/oscillation.
+  /// - Wake: sustained HR elevation (> +15 bpm) or rapid surge (> 12 bpm range within 30s).
+  /// - Light Sleep: intermediate transitional NREM periods.
+  static SleepStage classifyHrOnlyEpoch({
+    required double epochMeanHr,
+    required double epochHrStd,
+    required double epochHrRange,
+    required double baselineRestingHr,
+    required double medianHrStd,
+  }) {
+    if (epochHrRange > 12.0 || epochMeanHr > (baselineRestingHr + 15.0)) {
+      return SleepStage.wake;
+    }
+
+    final steadyStdThreshold = medianHrStd > 0
+        ? (medianHrStd * 1.0).clamp(1.0, 2.2)
+        : 1.5;
+    final remStdThreshold = medianHrStd > 0
+        ? (medianHrStd * 1.10).clamp(1.2, 3.0)
+        : 1.5;
+
+    // Deep Sleep: lowest HR near nocturnal nadir (p10 + 3.5 bpm) + steady parasympathetic quiescence
+    if (epochMeanHr <= (baselineRestingHr + 3.5) &&
+        epochHrRange <= 5.0 &&
+        epochHrStd <= steadyStdThreshold) {
+      return SleepStage.deep;
+    }
+
+    // REM Sleep: higher variable HR & autonomic bursts above nadir without waking tachycardia
+    if (epochMeanHr > (baselineRestingHr + 2.0) &&
+        epochMeanHr <= (baselineRestingHr + 15.0) &&
+        (epochHrStd >= remStdThreshold || epochHrRange >= 5.0)) {
+      return SleepStage.rem;
+    }
+
+    return SleepStage.light;
+  }
+
   /// Temporal continuity smoothing across the hypnogram (Sliding 3-epoch window).
   /// In human sleep architecture, sleep stages typically persist in sustained bouts of several minutes.
   /// Isolated 30-second epoch flips between identical surrounding stages are usually PPG noise artifacts,

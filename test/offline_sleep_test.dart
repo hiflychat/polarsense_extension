@@ -5,6 +5,7 @@ import 'package:polarsense_extension/core/ble/polar_ble_manager.dart';
 import 'package:polarsense_extension/core/database/models/sleep_record.dart';
 import 'package:polarsense_extension/features/sleep/hrv_calculator.dart';
 import 'package:polarsense_extension/features/sleep/recovery_score_calculator.dart';
+import 'package:polarsense_extension/features/sleep/sleep_engine.dart';
 import 'package:polarsense_extension/features/sleep/sleep_session_controller.dart';
 import 'package:polarsense_extension/features/sleep/sleep_staging_model.dart';
 
@@ -217,6 +218,75 @@ void main() {
       );
       expect(okResult.isSuccess, isTrue);
       expect(okResult.syncedCount, 1);
+    });
+
+    test('SleepEngine.analyzeOfflineSamples stages Green-LED 1Hz HR data without fake RMSSD', () {
+      // Simulate 7 hours (25,200 1Hz BPM samples) with Deep, REM, Light, and brief Wake
+      final hrSamples = <int>[];
+      final rand = Random(7);
+      for (int epoch = 0; epoch < 840; epoch++) {
+        for (int s = 0; s < 30; s++) {
+          if (epoch < 20 || epoch >= 820) {
+            // Wake onset & morning wake
+            hrSamples.add(74 + rand.nextInt(5));
+          } else if ((epoch >= 100 && epoch < 260) || (epoch >= 420 && epoch < 560)) {
+            // Deep slow-wave sleep: calm low HR around 52-53 bpm
+            hrSamples.add(52 + (s % 5 == 0 ? 1 : 0));
+          } else if ((epoch >= 280 && epoch < 360) || (epoch >= 600 && epoch < 740)) {
+            // REM sleep: phasic oscillation between 58 and 66 bpm
+            hrSamples.add(59 + ((s % 6 < 3) ? 6 : 0) + rand.nextInt(2));
+          } else {
+            // Light sleep: intermediate ~56 bpm with mild drift
+            hrSamples.add(56 + (s % 4 == 0 ? 2 : 0));
+          }
+        }
+      }
+
+      final analyzed = SleepEngine.analyzeOfflineSamples(
+        sessionId: 'hr_only_test',
+        startTime: DateTime(2026, 11, 11, 23, 30),
+        exerciseData: PolarExerciseData(interval: 1, samples: hrSamples),
+      );
+
+      expect(analyzed, isNotNull);
+      final session = analyzed!.session;
+      expect(session.dataSource, SleepSession.sourceOfflineHrOnly);
+      expect(session.isHrOnlyOffline, isTrue);
+      expect(session.hasHrvData, isFalse);
+      expect(session.avgRmssd, 0.0); // Does not fabricate PPI RMSSD from 1Hz BPM
+      expect(session.deepMinutes, greaterThan(60));
+      expect(session.lightMinutes, greaterThan(60));
+      expect(session.remMinutes, greaterThan(60));
+      expect(session.wakeMinutes, greaterThan(10));
+      expect(session.recoveryScore, greaterThanOrEqualTo(80));
+    });
+
+    test('SleepEngine.analyzeOfflineSamples anchors first-night baseline to low RHR sleepers (48 bpm)', () {
+      // Simulate a fit sleeper with 48 bpm resting HR on night 1 (prior default = 60 bpm)
+      final ppiSamples = <int>[];
+      for (int epoch = 0; epoch < 240; epoch++) {
+        final targetHr = epoch < 120 ? 48.0 : 56.0; // Deep 48 bpm, Light/REM 56 bpm
+        final basePpi = (60000.0 / targetHr).round();
+        for (int s = 0; s < 30; s++) {
+          final diff = epoch < 120 ? (s.isEven ? 30 : -30) : (s.isEven ? 18 : -18);
+          ppiSamples.add(basePpi + diff);
+        }
+      }
+
+      final analyzed = SleepEngine.analyzeOfflineSamples(
+        sessionId: 'ppi_low_rhr_test',
+        startTime: DateTime(2026, 11, 11, 23, 0),
+        exerciseData: PolarExerciseData(interval: 1, samples: ppiSamples),
+        priorBaselineRestingHr: 60.0,
+        priorBaseline14DayRmssd: 42.0,
+      );
+
+      expect(analyzed, isNotNull);
+      expect(analyzed!.session.dataSource, SleepSession.sourceOfflinePpi);
+      expect(analyzed.session.hasHrvData, isTrue);
+      expect(analyzed.session.restingHr, closeTo(48.0, 1.5));
+      expect(analyzed.session.deepMinutes, greaterThan(30));
+      expect(analyzed.session.remMinutes, greaterThan(30));
     });
   });
 }

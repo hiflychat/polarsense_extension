@@ -113,6 +113,10 @@ class SleepEpoch {
 }
 
 class SleepSession {
+  static const String sourceLiveAccPpi = 'live_acc_ppi';
+  static const String sourceOfflinePpi = 'offline_ppi';
+  static const String sourceOfflineHrOnly = 'offline_hr_only';
+
   final String id;
   final DateTime startTime;
   final DateTime endTime;
@@ -125,6 +129,7 @@ class SleepSession {
   final double avgRmssd;
   final int recoveryScore;
   final bool syncedToHealth;
+  final String dataSource;
 
   SleepSession({
     required this.id,
@@ -139,13 +144,28 @@ class SleepSession {
     required this.avgRmssd,
     required this.recoveryScore,
     this.syncedToHealth = false,
+    this.dataSource = sourceLiveAccPpi,
   });
+
+  bool get isHrOnlyOffline => dataSource == sourceOfflineHrOnly;
+  bool get hasHrvData => !isHrOnlyOffline && avgRmssd > 0;
+  int get actualSleepMinutes => deepMinutes + remMinutes + lightMinutes;
+  int get effectiveSleepMinutes => actualSleepMinutes > 0 ? actualSleepMinutes : durationMinutes;
+  double get sleepEfficiency => durationMinutes > 0
+      ? ((actualSleepMinutes / durationMinutes) * 100.0).clamp(0.0, 100.0)
+      : 0.0;
 
   double get deepPercentage => durationMinutes > 0 ? (deepMinutes / durationMinutes) * 100 : 0.0;
   double get remPercentage => durationMinutes > 0 ? (remMinutes / durationMinutes) * 100 : 0.0;
   double get lightPercentage => durationMinutes > 0 ? (lightMinutes / durationMinutes) * 100 : 0.0;
   double get wakePercentage => durationMinutes > 0 ? (wakeMinutes / durationMinutes) * 100 : 0.0;
   String get durationFormatted => '${durationMinutes ~/ 60}h ${durationMinutes % 60}m';
+
+  String formattedDuration({bool isZh = false}) {
+    final h = durationMinutes ~/ 60;
+    final m = durationMinutes % 60;
+    return isZh ? '${h}小时${m}分钟' : '${h}h ${m}m';
+  }
 
   SleepSession copyWith({
     String? id,
@@ -160,6 +180,7 @@ class SleepSession {
     double? avgRmssd,
     int? recoveryScore,
     bool? syncedToHealth,
+    String? dataSource,
   }) {
     return SleepSession(
       id: id ?? this.id,
@@ -174,6 +195,7 @@ class SleepSession {
       avgRmssd: avgRmssd ?? this.avgRmssd,
       recoveryScore: recoveryScore ?? this.recoveryScore,
       syncedToHealth: syncedToHealth ?? this.syncedToHealth,
+      dataSource: dataSource ?? this.dataSource,
     );
   }
 
@@ -191,10 +213,13 @@ class SleepSession {
       'avgRmssd': avgRmssd,
       'recoveryScore': recoveryScore,
       'syncedToHealth': syncedToHealth ? 1 : 0,
+      'dataSource': dataSource,
     };
   }
 
   factory SleepSession.fromMap(Map<String, dynamic> map) {
+    final rmssd = (map['avgRmssd'] as num).toDouble();
+    final rawSource = map['dataSource'] as String?;
     return SleepSession(
       id: map['id'] as String,
       startTime: DateTime.fromMillisecondsSinceEpoch(map['startTime'] as int),
@@ -205,9 +230,10 @@ class SleepSession {
       lightMinutes: map['lightMinutes'] as int,
       deepMinutes: map['deepMinutes'] as int,
       restingHr: (map['restingHr'] as num).toDouble(),
-      avgRmssd: (map['avgRmssd'] as num).toDouble(),
+      avgRmssd: rmssd,
       recoveryScore: map['recoveryScore'] as int,
       syncedToHealth: (map['syncedToHealth'] as int) == 1,
+      dataSource: rawSource ?? (rmssd <= 0 ? sourceOfflineHrOnly : sourceLiveAccPpi),
     );
   }
 }

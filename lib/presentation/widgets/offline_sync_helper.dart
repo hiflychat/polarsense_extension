@@ -78,6 +78,7 @@ Future<void> runOfflineSyncWithModal({
 
   final result =
       await ref.read(sleepHistoryProvider.notifier).syncOfflineSleepDetailed(
+    strings: strings,
     onProgress: (status) {
       progressMessage = status;
       modalSetState?.call(() {});
@@ -135,7 +136,7 @@ void showOfflineSyncGuideOrErrorDialog(
     headline = strings.noExercisesFound;
   }
 
-  final diagText = _formatDiagnostics(result.diagnostics);
+  final diagText = _formatDiagnostics(result.diagnostics, strings);
 
   showDialog(
     context: context,
@@ -218,33 +219,50 @@ void showOfflineSyncGuideOrErrorDialog(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(ctx).pop(),
-          child: const Text('OK', style: TextStyle(color: AppTheme.polarCyan)),
+          child: Text(strings.ok, style: const TextStyle(color: AppTheme.polarCyan)),
         ),
       ],
     ),
   );
 }
 
-String _formatDiagnostics(Map<String, dynamic>? diag) {
+String _formatDiagnostics(Map<String, dynamic>? diag, AppStrings strings) {
   if (diag == null || diag.isEmpty) return '';
+  final isZh = strings.isZh;
   final buf = StringBuffer();
   if (diag['diskFreeBytes'] != null && diag['diskTotalBytes'] != null) {
     final freeMb = ((diag['diskFreeBytes'] as num) / (1024 * 1024)).toStringAsFixed(2);
     final totalMb = ((diag['diskTotalBytes'] as num) / (1024 * 1024)).toStringAsFixed(2);
-    buf.writeln('Disk: $freeMb MB free / $totalMb MB total');
+    buf.writeln(isZh
+        ? '存储空间: 可用 $freeMb MB / 共 $totalMb MB'
+        : 'Disk: $freeMb MB free / $totalMb MB total');
   }
   buf.writeln(
-    'Ready: fileTransfer=${diag['fileTransferReady']}, offlineRec=${diag['offlineRecordingReady']}',
+    isZh
+        ? '通道就绪: 文件传输=${diag['fileTransferReady']}, 离线录制=${diag['offlineRecordingReady']}'
+        : 'Ready: fileTransfer=${diag['fileTransferReady']}, offlineRec=${diag['offlineRecordingReady']}',
   );
   final u0Paths = (diag['u0Paths'] as List?) ?? const [];
-  buf.writeln('/U/0/ entries (${u0Paths.length}): ${u0Paths.take(12).join(', ')}');
+  buf.writeln(
+    isZh
+        ? '/U/0/ 目录条目 (${u0Paths.length}): ${u0Paths.take(12).join(', ')}'
+        : '/U/0/ entries (${u0Paths.length}): ${u0Paths.take(12).join(', ')}',
+  );
   final offlineEntries = (diag['offlineEntries'] as List?) ?? const [];
   if (offlineEntries.isNotEmpty) {
-    buf.writeln('OfflineRec entries: ${offlineEntries.join(', ')}');
+    buf.writeln(
+      isZh
+          ? '离线录制条目: ${offlineEntries.join(', ')}'
+          : 'OfflineRec entries: ${offlineEntries.join(', ')}',
+    );
   }
   final errors = (diag['errors'] as List?) ?? const [];
   if (errors.isNotEmpty) {
-    buf.writeln('Errors: ${errors.join(' | ')}');
+    buf.writeln(
+      isZh
+          ? '诊断日志: ${errors.join(' | ')}'
+          : 'Errors: ${errors.join(' | ')}',
+    );
   }
   return buf.toString().trim();
 }

@@ -127,6 +127,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 const SizedBox(height: 16),
                 _buildOfflineStorageCard(bleManager, isConnected, strings),
                 const SizedBox(height: 16),
+                _buildDeviceGlossaryCard(strings),
+                const SizedBox(height: 16),
               ],
 
               // 3. Paired Device Card (if device is remembered)
@@ -276,7 +278,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${bleManager.pairedDeviceName ?? "Polar Verity Sense"} (ID: ${bleManager.pairedDeviceId})',
+                    '${bleManager.pairedDeviceName ?? "Polar Verity Sense"} (${strings.deviceIdLabel(bleManager.pairedDeviceId ?? "")})',
                     style: const TextStyle(fontSize: 12, color: Colors.white70),
                   ),
                   const SizedBox(height: 2),
@@ -566,7 +568,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                                         content: Text(
                                           ok
                                               ? strings.stopOfflineRecord
-                                              : (strings.isZh ? '停止录制失败，请确认手环处于蓝灯模式' : 'Failed to stop recording'),
+                                              : strings.syncStopFailed,
                                         ),
                                         backgroundColor: ok ? AppTheme.darkCard : AppTheme.polarRed,
                                       ),
@@ -580,7 +582,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                                         content: Text(
                                           ok
                                               ? strings.offlineRecordingActive
-                                              : (strings.isZh ? '开启手环离线录制失败，请重试' : 'Failed to start offline recording'),
+                                              : strings.syncStartFailed,
                                         ),
                                         backgroundColor: ok ? AppTheme.recoveryGood : AppTheme.polarRed,
                                       ),
@@ -795,7 +797,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                       ),
                       title: Text(dev.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text(
-                        'ID: ${dev.deviceId}  •  RSSI: ${dev.rssi} dBm',
+                        '${strings.deviceIdLabel(dev.deviceId)}  •  ${strings.signalRssiLabel(dev.rssi)}',
                         style: const TextStyle(fontSize: 11, color: Colors.white54),
                       ),
                       trailing: FilledButton(
@@ -814,6 +816,38 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildDeviceGlossaryCard(AppStrings strings) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.info_outline, color: AppTheme.polarCyan, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  strings.deviceGlossaryTitle,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              strings.deviceGlossaryBody,
+              style: const TextStyle(fontSize: 11, color: Colors.white60, height: 1.45),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

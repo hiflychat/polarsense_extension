@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../background/background_service.dart';
 import '../database/health_database.dart';
+import '../database/models/sleep_record.dart';
+import '../notifications/notification_service.dart';
 
 enum AppLanguage {
   zh, // 简体中文
@@ -54,10 +57,17 @@ class AppStrings {
   String get min => isZh ? '分钟' : 'min';
   String get sec => isZh ? '秒' : 'sec';
   String get hrs => isZh ? '小时' : 'hrs';
-  String get bpm => 'BPM';
-  String get ms => 'ms';
+  String get bpm => isZh ? '次/分' : 'BPM';
+  String get ms => isZh ? '毫秒' : 'ms';
   String get limit => isZh ? '提醒阈值' : 'Limit';
   String get goal90s => isZh ? '目标: 60秒重置' : 'Goal: 60 sec reset';
+  String get ok => isZh ? '确定' : 'OK';
+  String get gotIt => isZh ? '知道了' : 'Got it';
+  String get cancel => isZh ? '取消' : 'Cancel';
+  String get deleteLabel => isZh ? '删除' : 'Delete';
+  String get vmuSedentaryLegend => isZh
+      ? '图注：姿态动量 VMU 阈值 <0.035g 判定静坐，≥0.070g (主动活动/走动) 满 60 秒自动重置'
+      : 'Legend: VMU < 0.035g = Stationary · ≥ 0.070g (active arms/walking) for 60s resets timer';
 
   // Sensor Screen
   String get sensorTitle => 'Polar Verity Sense';
@@ -96,16 +106,24 @@ class AppStrings {
   String get cachedStatus => isZh ? '历史' : 'Cached';
   String get chargingStatus => isZh ? '充电中' : 'Charging';
   String get opticalHr => isZh ? '光学实时心率' : 'Optical HR';
-  String get accStreamTitle => isZh ? '26 Hz 运动姿态流' : 'ACC Stream 26 Hz';
-  String get accActive => isZh ? '26 Hz 姿态同步中 (手臂运动检测)' : 'Active (arm posture synced)';
+  String get accStreamTitle => isZh ? '52 Hz 运动姿态流' : 'ACC Stream 52 Hz';
+  String get accActive => isZh ? '52 Hz 姿态同步中 (手臂运动检测)' : 'Active (52 Hz arm posture synced)';
   String get accWaiting => isZh ? '等待手环加速度采样...' : 'Waiting for samples...';
   String get hardwareSimulator => isZh ? '硬件模拟器 (开发者模式)' : 'Hardware Simulator (Developer Mode)';
   String get hardwareSimulatorDesc => isZh
-      ? '无需连接实体手环即可模拟生成 26Hz 加速度和心率脉冲数据。'
-      : 'Simulate 26 Hz accelerometer and PPI streams without physical Polar Verity Sense.';
+      ? '无需连接实体手环即可模拟生成 52Hz 加速度和心率脉冲数据。'
+      : 'Simulate 52 Hz accelerometer and PPI streams without physical Polar Verity Sense.';
   String get simulateWalking => isZh ? '模拟行走动作 (VMU ≥ 0.15g)' : 'Simulate Active Walking (VMU ≥ 0.15g)';
   String get walking => isZh ? '行走中' : 'Walking';
   String get stationary => isZh ? '静止中' : 'Stationary';
+  String get deviceGlossaryTitle => isZh ? '传感器专业缩写图注' : 'Sensor Telemetry Legend';
+  String get deviceGlossaryBody => isZh
+      ? '• BPM：每分钟心跳次数 (Beats Per Minute)\n• ACC (52 Hz)：每秒 52 次三轴加速度采样，用于静坐与手臂活动识别\n• PPI：连续两次脉搏心跳间隔毫秒数，用于高精度 HRV 计算\n• RSSI (dBm)：蓝牙信号强度，数值越接近 0 表示信号越稳'
+      : '• BPM: Beats Per Minute\n• ACC (52 Hz): Triaxial accelerometry for posture & sedentary detection\n• PPI: Optical pulse-to-pulse intervals (ms) for true HRV\n• RSSI (dBm): Bluetooth signal strength (closer to 0 = stronger)';
+  String get syncStopFailed => isZh ? '停止录制失败，请确认手环处于蓝灯模式' : 'Failed to stop recording';
+  String get syncStartFailed => isZh ? '开启手环离线录制失败，请重试' : 'Failed to start offline recording';
+  String deviceIdLabel(String id) => isZh ? '设备编号: $id' : 'ID: $id';
+  String signalRssiLabel(int rssi) => isZh ? '信号强度: $rssi dBm' : 'RSSI: $rssi dBm';
 
   // Sleep Screen
   String get sleepRecoveryTitle => isZh ? '睡眠与身心恢复' : 'Sleep & Recovery';
@@ -115,12 +133,46 @@ class AppStrings {
   String get light => isZh ? '浅睡眠' : 'Light';
   String get rem => isZh ? '快速眼动 (REM)' : 'REM';
   String get wake => isZh ? '清醒' : 'Wake';
-  String get totalSleep => isZh ? '总睡眠时长' : 'Total Sleep';
-  String get restingHrLowest => isZh ? '静息心率' : 'Resting HR';
-  String get restingHrDesc => isZh ? '夜间最低 10% 均值' : 'Overnight lowest 10%';
-  String get hrvTitle => isZh ? '心率变异性' : 'HRV';
-  String get hrvDesc => isZh ? '自主神经系统恢复指标' : 'Autonomic recovery';
+  String get stageWakeAxis => isZh ? '清醒' : 'Wake';
+  String get stageRemAxis => 'REM';
+  String get stageLightAxis => isZh ? '浅睡' : 'Light';
+  String get stageDeepAxis => isZh ? '深睡' : 'Deep';
+  String get recordingNeed2Epochs => isZh
+      ? '监测进行中（累计满 2 个周期 / 约 1 分钟后绘制时序图）...'
+      : 'Recording in progress (need at least 2 epochs to graph)...';
+  String get hypnogramLegendTitle => isZh ? '图注：' : 'Legend:';
+  String get hypnogramLegendWake => isZh ? '清醒 (Wake)' : 'Wake';
+  String get hypnogramLegendRem => isZh ? '快速眼动 (REM)' : 'REM';
+  String get hypnogramLegendLight => isZh ? '浅睡 (Light)' : 'Light';
+  String get hypnogramLegendDeep => isZh ? '深睡 (Deep)' : 'Deep';
+  String get hypnogramAxisNote => isZh
+      ? '横轴：时间（每格 30 秒） ·  纵轴：深睡 → 浅睡 → REM(快速眼动做梦期) → 清醒'
+      : 'X-axis: Time (30s epochs)  ·  Y-axis: Deep → Light → REM → Wake';
+  String get recoveryBadgeLabel => isZh ? '恢复评分' : 'RECOVERY';
+  String recoveryStatusLabel(int score) {
+    if (score >= 85) return isZh ? '最佳恢复状态' : 'Optimal Recovery';
+    if (score >= 70) return isZh ? '恢复良好' : 'Good Recovery';
+    if (score >= 50) return isZh ? '恢复一般' : 'Moderate Recovery';
+    return isZh ? '恢复欠佳 / 疲劳偏高' : 'Suboptimal / High Fatigue';
+  }
+  String get totalSleep => isZh ? '监测总时长' : 'Time in Bed';
+  String actualSleepEfficiencySub(int actualMin, double efficiencyPct) {
+    final h = actualMin ~/ 60;
+    final m = actualMin % 60;
+    return isZh
+        ? '有效睡眠 ${h}小时${m}分钟 · 效率 ${efficiencyPct.round()}%'
+        : 'Asleep ${h}h ${m}m · Efficiency ${efficiencyPct.round()}%';
+  }
+  String get restingHrLowest => isZh ? '夜间静息心率' : 'Resting HR';
+  String get restingHrDesc => isZh ? '整夜最低 10% 分位心率' : 'Overnight lowest 10%';
+  String get hrvTitle => isZh ? '心率变异性 (HRV)' : 'HRV (RMSSD)';
+  String get hrvDesc => isZh ? '自主神经系统修复指标' : 'Autonomic recovery (RMSSD)';
+  String get hrvUnavailableShort => isZh ? '需 PPI' : 'N/A';
+  String get hrvUnavailableDesc => isZh
+      ? '绿灯离线仅心率模式暂不支持 HRV'
+      : 'Unavailable in 1Hz HR-only offline mode';
   String get healthSync => isZh ? '健康生态同步' : 'Health Sync';
+  String get healthEcosystemSub => isZh ? 'Apple 健康 / Health Connect' : 'HealthKit / Health Connect';
   String get synced => isZh ? '已同步' : 'Synced';
   String get localOnly => isZh ? '本地存储' : 'Local';
   String get exportTooltip => isZh ? '导出至系统健康生态' : 'Export to HealthKit / Health Connect';
@@ -136,6 +188,56 @@ class AppStrings {
   String get durationFactor => isZh ? '时长贡献 (30%)' : 'Duration (30%)';
   String get stageRatioFactor => isZh ? '深度+REM贡献 (30%)' : 'Deep+REM (30%)';
   String get hrvFactor => isZh ? 'HRV指数贡献 (40%)' : 'HRV Index (40%)';
+  String durationFactorWeighted(int pct) => isZh ? '时长贡献 ($pct%)' : 'Duration ($pct%)';
+  String stageRatioFactorWeighted(int pct) => isZh ? '深度+REM贡献 ($pct%)' : 'Deep+REM ($pct%)';
+  String get hrvFactorUnavailable => isZh ? 'HRV 指数 (需 PPI 模式)' : 'HRV Index (Needs PPI)';
+
+  String dataSourceLabel(String source) {
+    switch (source) {
+      case SleepSession.sourceOfflinePpi:
+        return isZh ? '数据来源：手环离线 PPI 精确录制' : 'Source: Offline Sensor PPI';
+      case SleepSession.sourceOfflineHrOnly:
+        return isZh ? '数据来源：手环绿灯离线录制 (仅 1Hz 心率)' : 'Source: Green-LED Offline (1Hz HR)';
+      default:
+        return isZh ? '数据来源：实时蓝牙高精度监测 (ACC + PPI)' : 'Source: Live BLE Precision (ACC + PPI)';
+    }
+  }
+
+  String get hrOnlyModeNotice => isZh
+      ? '说明：绿灯独立录制仅存储 1Hz 每分钟心率 (BPM)，不含原始脉搏间期 (PPI) 与三轴加速度。当前分期已自动采用“个人静息心率+短时心率波动率”模型估算，恢复评分按睡眠时长 50% + 深睡/REM 比例 50% 公平权重计算，未伪造 RMSSD 数值。'
+      : 'Note: Standalone Green-LED mode records 1Hz HR (BPM) without raw PPI or ACC streams. Sleep stages are estimated from nocturnal HR nadir & short-term variability, and Recovery Score uses 50% Duration + 50% Deep/REM weighting.';
+
+  String get metricGlossaryTitle => isZh ? '名词与缩写图注' : 'Terminology Legend';
+  List<({String term, String desc})> get glossaryItems => isZh
+      ? [
+          (term: 'REM (快速眼动期)', desc: '大脑活跃与做梦阶段，心率波动较大，主要完成情绪调节与记忆巩固，健康成人通常占 20%–25%。'),
+          (term: 'HRV / RMSSD', desc: '心率变异性与相邻心跳间期差值的均方根（单位：毫秒 ms），数值越高通常代表副交感神经修复越充分，须基于 PPI 脉冲间期测量。'),
+          (term: 'RHR / BPM', desc: '夜间静息心率（取整夜最低 10% 分位）与每分钟心跳次数（Beats Per Minute）。'),
+          (term: '恢复评分构成', desc: '基于 7–9 小时睡眠时长、深睡+REM 目标占比（35%–50%）及 14 天个人 HRV 基线综合评估；缺 PPI 时按时长与结构 50%/50% 计分。'),
+        ]
+      : [
+          (term: 'REM Sleep', desc: 'Rapid Eye Movement sleep; vivid dreaming and memory consolidation phase (~20–25% of sleep).'),
+          (term: 'HRV / RMSSD', desc: 'Root Mean Square of Successive PPI Differences (ms); reflects vagal/parasympathetic recovery (requires PPI intervals).'),
+          (term: 'Resting HR (BPM)', desc: '10th-percentile lowest overnight heart rate in Beats Per Minute.'),
+          (term: 'Recovery Score', desc: 'Weighted composite of Duration (7–9h target), Deep+REM ratio (35–50%), and Night RMSSD vs. 14-day baseline.'),
+        ];
+
+  String get deleteSessionTitle => isZh ? '删除本地记录' : 'Delete Local Record';
+  String get deleteSessionConfirm => isZh
+      ? '仅删除手机本地该条分析记录（手环内部原数据不会被清除，可随时点击同步重新导入运算）。是否继续？'
+      : 'Delete this record from local phone storage? (The sensor copy remains intact if you wish to re-sync.)';
+  String get sessionDeleted => isZh ? '已清除本地记录' : 'Local record deleted';
+
+  // Sync progress messages
+  String get syncProgressPreparing => isZh ? '正在准备蓝牙传输通道与检查手环状态...' : 'Preparing transfer channel & checking sensor...';
+  String get syncProgressListing => isZh ? '正在读取手环内置存储列表...' : 'Reading sensor internal storage...';
+  String get syncProgressAlreadyDone => isZh ? '手环内记录此前已全部同步完毕' : 'All sensor records are already synced';
+  String syncProgressDownloading(int current, int total) => isZh
+      ? '正在下载睡眠数据 ($current/$total)...'
+      : 'Downloading sleep data ($current/$total)...';
+  String syncProgressAnalyzing(int current, int total) => isZh
+      ? '正在本地分析 30 秒分期与 HRV ($current/$total)...'
+      : 'Analyzing 30s sleep stages & HRV ($current/$total)...';
 
   // Offline Sleep & Standalone Recording
   String get offlineSyncTitle => isZh ? '手环离线睡眠同步' : 'Sense Offline Sync';
@@ -201,7 +303,8 @@ class AppStrings {
   String get requestAuth => isZh ? '申请授权' : 'Request Permissions';
   String get syncAllSessions => isZh ? '一键同步所有未同步会话' : 'Sync All Unsynced Sessions';
   String get sessionsSynced => isZh ? '已同步会话' : 'sessions synced';
-  String get aboutPolarSense => isZh ? '关于 PolarSense' : 'About PolarSense';
+  String get aboutPolarSense => isZh ? '关于晴雨脉' : 'About PolarSense';
+  String get aboutAppName => isZh ? '晴雨脉 (Polar Verity Sense 睡眠与久坐健康助手)' : 'PolarSense (Verity Sense Sleep & Sedentary)';
   String get version => isZh ? '版本' : 'Version';
 }
 
@@ -215,16 +318,18 @@ class AppLanguageNotifier extends StateNotifier<AppLanguage> {
   Future<void> _loadLanguage() async {
     try {
       final saved = await _database.getSetting('app_language');
-      if (saved == 'en') {
-        state = AppLanguage.en;
-      } else {
-        state = AppLanguage.zh;
-      }
+      final isZh = saved != 'en';
+      state = isZh ? AppLanguage.zh : AppLanguage.en;
+      NotificationService().setLanguage(isZh: isZh);
+      BackgroundService().setLanguage(isZh: isZh);
     } catch (_) {}
   }
 
   Future<void> setLanguage(AppLanguage lang) async {
     state = lang;
+    final isZh = lang == AppLanguage.zh;
+    NotificationService().setLanguage(isZh: isZh);
+    BackgroundService().setLanguage(isZh: isZh);
     try {
       await _database.setSetting('app_language', lang == AppLanguage.en ? 'en' : 'zh');
     } catch (_) {}

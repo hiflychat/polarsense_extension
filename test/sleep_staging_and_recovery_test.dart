@@ -123,5 +123,72 @@ void main() {
       expect(breakdown.totalScore, lessThan(55));
       expect(breakdown.statusDescription, anyOf('Moderate Recovery', 'Suboptimal / High Fatigue'));
     });
+
+    test('Reweights 50/50 when HRV is unavailable (HR-only offline mode)', () {
+      final breakdown = RecoveryScoreCalculator.calculate(
+        durationMinutes: 480, // 8h -> 100
+        deepMinutes: 90,
+        remMinutes: 100,      // 190/480 = 39.6% -> 100
+        nightRmssd: 0.0,
+        baseline14DayRmssd: 42.0,
+        hasHrvData: false,
+      );
+
+      expect(breakdown.hasHrvData, isFalse);
+      expect(breakdown.durationScore, closeTo(100.0, 0.1));
+      expect(breakdown.stageRatioScore, closeTo(100.0, 0.1));
+      expect(breakdown.totalScore, 100);
+    });
+  });
+
+  group('SleepStagingModel HR-Only Offline Staging Tests', () {
+    test('Classifies Deep, REM, Light, and Wake accurately from 1Hz HR features', () {
+      const baselineHr = 54.0;
+      const medianStd = 1.4;
+
+      expect(
+        SleepStagingModel.classifyHrOnlyEpoch(
+          epochMeanHr: 55.0,
+          epochHrStd: 0.9,
+          epochHrRange: 2.0,
+          baselineRestingHr: baselineHr,
+          medianHrStd: medianStd,
+        ),
+        SleepStage.deep,
+      );
+
+      expect(
+        SleepStagingModel.classifyHrOnlyEpoch(
+          epochMeanHr: 61.0,
+          epochHrStd: 2.4,
+          epochHrRange: 7.0,
+          baselineRestingHr: baselineHr,
+          medianHrStd: medianStd,
+        ),
+        SleepStage.rem,
+      );
+
+      expect(
+        SleepStagingModel.classifyHrOnlyEpoch(
+          epochMeanHr: 74.0,
+          epochHrStd: 3.1,
+          epochHrRange: 9.0,
+          baselineRestingHr: baselineHr,
+          medianHrStd: medianStd,
+        ),
+        SleepStage.wake,
+      );
+
+      expect(
+        SleepStagingModel.classifyHrOnlyEpoch(
+          epochMeanHr: 58.0,
+          epochHrStd: 1.5,
+          epochHrRange: 4.0,
+          baselineRestingHr: baselineHr,
+          medianHrStd: medianStd,
+        ),
+        SleepStage.light,
+      );
+    });
   });
 }

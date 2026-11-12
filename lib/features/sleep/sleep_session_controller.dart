@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ble/polar_ble_manager.dart';
 import '../../core/database/health_database.dart';
 import '../../core/database/models/sleep_record.dart';
+import '../../core/localization/app_strings.dart';
 import '../sedentary/sedentary_notifier.dart';
 import 'sleep_engine.dart';
 
@@ -44,12 +45,14 @@ class SleepHistoryState {
   final List<SleepSession> sessions;
   final SleepSession? selectedSession;
   final List<SleepEpoch> selectedEpochs;
+  final double baseline14DayRmssd;
   final bool isLoading;
 
   SleepHistoryState({
     required this.sessions,
     this.selectedSession,
     this.selectedEpochs = const [],
+    this.baseline14DayRmssd = 42.0,
     this.isLoading = false,
   });
 
@@ -57,12 +60,14 @@ class SleepHistoryState {
     List<SleepSession>? sessions,
     SleepSession? selectedSession,
     List<SleepEpoch>? selectedEpochs,
+    double? baseline14DayRmssd,
     bool? isLoading,
   }) {
     return SleepHistoryState(
       sessions: sessions ?? this.sessions,
       selectedSession: selectedSession ?? this.selectedSession,
       selectedEpochs: selectedEpochs ?? this.selectedEpochs,
+      baseline14DayRmssd: baseline14DayRmssd ?? this.baseline14DayRmssd,
       isLoading: isLoading ?? this.isLoading,
     );
   }
@@ -82,23 +87,34 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
     try {
       state = state.copyWith(isLoading: true);
       final sessions = await _database.getSleepSessions(limit: 30);
-      SleepSession? selected = state.selectedSession;
-      List<SleepEpoch> epochs = state.selectedEpochs;
+      final baselineRmssd = await _database.get14DayBaselineRmssd();
+      SleepSession? selected;
+      List<SleepEpoch> epochs = [];
 
       if (sessions.isNotEmpty) {
-        selected = sessions.first;
+        final previousSelectedId = state.selectedSession?.id;
+        selected = sessions.firstWhere(
+          (s) => s.id == previousSelectedId,
+          orElse: () => sessions.first,
+        );
         epochs = await _database.getSleepEpochs(selected.id);
       }
 
-      state = state.copyWith(
+      state = SleepHistoryState(
         sessions: sessions,
         selectedSession: selected,
         selectedEpochs: epochs,
+        baseline14DayRmssd: baselineRmssd,
         isLoading: false,
       );
     } catch (e) {
       state = state.copyWith(isLoading: false);
     }
+  }
+
+  Future<void> deleteSession(String sessionId) async {
+    await _database.deleteSleepSession(sessionId);
+    await loadSessions();
   }
 
   Future<void> selectSession(SleepSession session) async {
@@ -130,15 +146,17 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
   /// returning detailed counts and diagnostic info alongside any imported session.
   Future<OfflineSyncResult> syncOfflineSleepDetailed({
     Function(String status)? onProgress,
+    AppStrings? strings,
   }) async {
     final bleManager = _ref.read(polarBleManagerProvider);
+    final s = strings ?? _ref.read(stringsProvider);
 
     try {
       state = state.copyWith(isLoading: true);
-      onProgress?.call('正在准备传输通道与检查手环状态...');
+      onProgress?.call(s.syncProgressPreparing);
 
       return await bleManager.withFileTransferSession(() async {
-        onProgress?.call('正在读取手环内置存储列表...');
+        onProgress?.call(s.syncProgressListing);
         final entries = await bleManager.listOfflineRecordings();
 
         if (entries.isEmpty) {
@@ -175,7 +193,7 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
         );
 
         if (unSyncedEntries.isEmpty) {
-          onProgress?.call('手环内所有记录此前已同步完毕');
+          onProgress?.call(s.syncProgressAlreadyDone);
           await loadSessions();
           state = state.copyWith(isLoading: false);
           if (existingSessions.isNotEmpty) {
@@ -200,7 +218,7 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
 
         for (int i = 0; i < unSyncedEntries.length; i++) {
           final entry = unSyncedEntries[i];
-          onProgress?.call('正在下载睡眠数据 (${i + 1}/${unSyncedEntries.length})...');
+          onProgress?.call(s.syncProgressDownloading(i + 1, unSyncedEntries.length));
 
           final exerciseData = await bleManager.fetchOfflineRecording(entry);
           if (exerciseData == null) {
@@ -216,7 +234,7 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
 
           // At least 30 samples (30 seconds)
           if (exerciseData.samples.length >= 30) {
-            onProgress?.call('正在本地分析 30 秒分期与 HRV (${i + 1}/${unSyncedEntries.length})...');
+            onProgress?.call(s.syncProgressAnalyzing(i + 1, unSyncedEntries.length));
             final session = await _sleepEngine.processOfflineExercise(
               startTime: entry.date,
               exerciseData: exerciseData,

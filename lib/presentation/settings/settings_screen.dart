@@ -180,7 +180,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       backgroundColor: Colors.white12,
                       child: Icon(Icons.favorite, color: AppTheme.polarRed),
                     ),
-                    title: Text(Platform.isIOS ? 'Apple HealthKit' : 'Google Health Connect'),
+                    title: Text(
+                      Platform.isIOS
+                          ? (strings.isZh ? 'Apple HealthKit (苹果健康)' : 'Apple HealthKit')
+                          : (strings.isZh ? 'Google Health Connect (安卓健康中心)' : 'Google Health Connect'),
+                    ),
                     subtitle: Text(
                       strings.healthPermissionsDesc,
                       style: const TextStyle(fontSize: 12, color: Colors.white54),
@@ -249,9 +253,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Polar Verity Sense Extension', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(strings.aboutAppName, style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text('${strings.version} 1.0.0 • Polar BLE SDK 7.12.0', style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                  Text('${strings.version} 1.0.17 • Polar BLE SDK 7.12.0', style: const TextStyle(fontSize: 12, color: Colors.white54)),
                   const SizedBox(height: 8),
                   Text(
                     strings.hardwareSimulatorDesc,

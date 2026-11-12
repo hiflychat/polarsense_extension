@@ -9,14 +9,19 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
   static const String sedentaryChannelId = 'polarsense_sedentary_channel';
-  static const String sedentaryChannelName = 'Sedentary Alerts';
-  static const String sedentaryChannelDesc = 'Reminders to stand up and move when sitting too long';
+  static const String sedentaryChannelName = 'Sedentary Alerts / 久坐提醒';
+  static const String sedentaryChannelDesc = 'Reminders to stand up and move when sitting too long / 久坐起身活动提醒';
 
   static const String sleepChannelId = 'polarsense_sleep_channel';
-  static const String sleepChannelName = 'Sleep & Recovery';
-  static const String sleepChannelDesc = 'Morning sleep summaries and recovery insights';
+  static const String sleepChannelName = 'Sleep & Recovery / 睡眠与恢复';
+  static const String sleepChannelDesc = 'Morning sleep summaries and recovery insights / 晨起睡眠分析与恢复评分';
 
   bool _isInitialized = false;
+  bool _isZh = true;
+
+  void setLanguage({required bool isZh}) {
+    _isZh = isZh;
+  }
 
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -112,8 +117,10 @@ class NotificationService {
 
       await _notificationsPlugin.show(
         1001,
-        'Time to move! 🚶‍♂️',
-        "You've been stationary for $minutesStationary minutes. Stretch your legs or walk for 90 seconds.",
+        _isZh ? '该起身活动一下了 🚶‍♂️' : 'Time to move! 🚶‍♂️',
+        _isZh
+            ? '您已连续静坐 $minutesStationary 分钟，请起身走动或伸展 60 秒。'
+            : "You've been stationary for $minutesStationary minutes. Stretch your legs or walk for 60 seconds.",
         notificationDetails,
         payload: 'sedentary_alert',
       );
@@ -145,8 +152,8 @@ class NotificationService {
 
       await _notificationsPlugin.show(
         1002,
-        'Great job! Activity detected ✨',
-        'Sedentary timer reset after active movement.',
+        _isZh ? '很棒！已检测到主动活动 ✨' : 'Great job! Activity detected ✨',
+        _isZh ? '连续活动达标，久坐计时器已自动重置。' : 'Sedentary timer reset after active movement.',
         notificationDetails,
         payload: 'walking_reset',
       );
@@ -182,8 +189,12 @@ class NotificationService {
 
       await _notificationsPlugin.show(
         2001,
-        'Morning Recovery Score: $recoveryScore / 100 🌙',
-        'Slept ${durationHours.toStringAsFixed(1)} hrs with $deepPercent% deep sleep. Check your full breakdown.',
+        _isZh
+            ? '晨起身心恢复评分: $recoveryScore / 100 🌙'
+            : 'Morning Recovery Score: $recoveryScore / 100 🌙',
+        _isZh
+            ? '昨夜监测时长 ${durationHours.toStringAsFixed(1)} 小时，深睡占比 $deepPercent%。点击查看完整睡眠时序分析。'
+            : 'Slept ${durationHours.toStringAsFixed(1)} hrs with $deepPercent% deep sleep. Check your full breakdown.',
         notificationDetails,
         payload: 'sleep_summary',
       );

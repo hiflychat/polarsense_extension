@@ -260,15 +260,18 @@ class SleepEngine {
     // Overnight Average RMSSD
     final avgRmssd = _allSessionRmssd.isNotEmpty
         ? _allSessionRmssd.reduce((a, b) => a + b) / _allSessionRmssd.length
-        : _baseline14DayRmssd;
+        : 0.0;
+    final hasHrvData = avgRmssd > 0;
+    final actualSleepMinutes = remMinutes + lightMinutes + deepMinutes;
 
-    // Recovery Score Calculation
+    // Recovery Score Calculation (evaluated against actual asleep minutes rather than awake time-in-bed)
     final recovery = RecoveryScoreCalculator.calculate(
-      durationMinutes: durationMinutes,
+      durationMinutes: actualSleepMinutes > 0 ? actualSleepMinutes : durationMinutes,
       deepMinutes: deepMinutes,
       remMinutes: remMinutes,
       nightRmssd: avgRmssd,
       baseline14DayRmssd: _baseline14DayRmssd,
+      hasHrvData: hasHrvData,
     );
 
     final session = SleepSession(
@@ -284,6 +287,7 @@ class SleepEngine {
       avgRmssd: avgRmssd,
       recoveryScore: recovery.totalScore,
       syncedToHealth: false,
+      dataSource: SleepSession.sourceLiveAccPpi,
     );
 
     // Save to SQLite
@@ -315,26 +319,61 @@ class SleepEngine {
     }
 
     final sessionId = customSessionId ?? const Uuid().v4();
-    final intervalSec = exerciseData.interval > 0 ? exerciseData.interval : 1;
-    final samples = exerciseData.samples;
-
     _baselineRestingHr = await _database.getBaselineRestingHr();
     _baseline14DayRmssd = await _database.get14DayBaselineRmssd();
 
-    // Determine whether samples are RR intervals (ms) or HR (BPM)
+    final analyzed = analyzeOfflineSamples(
+      sessionId: sessionId,
+      startTime: startTime,
+      exerciseData: exerciseData,
+      priorBaselineRestingHr: _baselineRestingHr,
+      priorBaseline14DayRmssd: _baseline14DayRmssd,
+    );
+    if (analyzed == null) return null;
+
+    // Save to SQLite
+    await _database.insertSleepSession(analyzed.session);
+    await _database.insertSleepEpochs(analyzed.epochs);
+
+    // Trigger Notification
+    _notifications.showSleepSummary(
+      recoveryScore: analyzed.session.recoveryScore,
+      durationHours: analyzed.session.durationMinutes / 60.0,
+      deepPercent: analyzed.session.deepPercentage.round(),
+    );
+
+    debugPrint(
+      '[SleepEngine] Successfully imported offline sleep (${analyzed.session.dataSource}): '
+      '${analyzed.session.durationFormatted}, recovery: ${analyzed.session.recoveryScore}',
+    );
+    return analyzed.session;
+  }
+
+  /// Pure offline analysis pipeline separated for deterministic unit testing and batch imports.
+  static ({SleepSession session, List<SleepEpoch> epochs})? analyzeOfflineSamples({
+    required String sessionId,
+    required DateTime startTime,
+    required PolarExerciseData exerciseData,
+    double priorBaselineRestingHr = 60.0,
+    double priorBaseline14DayRmssd = 42.0,
+  }) {
+    if (exerciseData.samples.isEmpty) return null;
+
+    final intervalSec = exerciseData.interval > 0 ? exerciseData.interval : 1;
+    final samples = exerciseData.samples;
+
+    // Determine whether samples are genuine PPI/RR intervals (ms, > 250) or BPM heart rate (<= 250)
     final nonZeroSamples = samples.where((s) => s > 0).take(100).toList();
     final avgVal = nonZeroSamples.isNotEmpty
         ? nonZeroSamples.reduce((a, b) => a + b) / nonZeroSamples.length
         : 60.0;
     final isRrIntervals = avgVal > 250;
 
-    debugPrint('[SleepEngine] Processing offline exercise ($sessionId): ${samples.length} samples, interval: ${intervalSec}s, isRr: $isRrIntervals');
-
-    // Number of samples in a 30-second epoch
     final samplesPerEpoch = (30 / intervalSec).round().clamp(1, 300);
-    final List<SleepEpoch> generatedEpochs = [];
-    final List<double> allHr = [];
-    final List<double> allRmssd = [];
+    final rawFeatures = <_OfflineEpochFeature>[];
+    final allHr = <double>[];
+    final allRmssd = <double>[];
+    final allHrStds = <double>[];
 
     int totalSamples = samples.length;
     int epochIndex = 0;
@@ -344,12 +383,10 @@ class SleepEngine {
       if (chunk.isEmpty) continue;
 
       final epochTime = startTime.add(Duration(seconds: epochIndex * 30));
-
-      List<int> validPpi = [];
-      List<double> epochHrList = [];
+      final validPpi = <int>[];
+      final epochHrList = <double>[];
 
       if (isRrIntervals) {
-        // chunk contains RR intervals in milliseconds
         for (final ppi in chunk) {
           if (ppi >= 300 && ppi <= 2000) {
             validPpi.add(ppi);
@@ -357,11 +394,9 @@ class SleepEngine {
           }
         }
       } else {
-        // chunk contains HR in BPM
         for (final hr in chunk) {
           if (hr >= 30 && hr <= 220) {
             epochHrList.add(hr.toDouble());
-            validPpi.add((60000.0 / hr).round());
           }
         }
       }
@@ -372,46 +407,91 @@ class SleepEngine {
       }
 
       final meanHr = epochHrList.reduce((a, b) => a + b) / epochHrList.length;
-      final rmssd = HrvCalculator.calculateRmssd(validPpi);
+      final maxHr = epochHrList.reduce(max);
+      final minHr = epochHrList.reduce(min);
+      final hrRange = maxHr - minHr;
 
-      // Estimate movement index from short-term HR surges
-      // Calm sleep shows subtle RSA variations (< 10 bpm), while movement/arousals cause rapid spikes (> 12 bpm)
-      double movementIndex = 0.005; // baseline restful stillness
+      double hrStd = 0.0;
       if (epochHrList.length > 1) {
-        final maxHr = epochHrList.reduce(max);
-        final minHr = epochHrList.reduce(min);
-        if (maxHr - minHr > 12.0) {
-          movementIndex = (maxHr - minHr) / 100.0;
+        double sumSq = 0.0;
+        for (final h in epochHrList) {
+          final d = h - meanHr;
+          sumSq += d * d;
         }
+        hrStd = sqrt(sumSq / (epochHrList.length - 1));
       }
 
-      final stage = SleepStagingModel.classifyEpoch(
-        epochMovementIndex: movementIndex,
-        epochMeanHr: meanHr,
-        epochRmssd: rmssd > 0 ? rmssd : _baseline14DayRmssd * 0.8,
-        baselineRestingHr: _baselineRestingHr,
-        baselineRmssd: _baseline14DayRmssd,
-      );
+      // True RMSSD is computed ONLY when genuine PPI/RR intervals are present;
+      // 1Hz integer BPM cannot accurately measure beat-to-beat vagal RSA.
+      final double rmssd = isRrIntervals ? HrvCalculator.calculateRmssd(validPpi) : 0.0;
+
+      // Without ACC in offline exercise files, estimate movement proxy from rapid 30s HR surges
+      final double movementIndex = hrRange > 12.0 ? (hrRange / 100.0) : 0.005;
 
       allHr.add(meanHr);
-      if (rmssd > 0) allRmssd.add(rmssd);
+      allHrStds.add(hrStd);
+      if (isRrIntervals && rmssd > 0) {
+        allRmssd.add(rmssd);
+      }
 
-      final epoch = SleepEpoch(
-        sessionId: sessionId,
+      rawFeatures.add(_OfflineEpochFeature(
         timestamp: epochTime,
-        stage: stage,
         meanHr: meanHr,
+        hrStd: hrStd,
+        hrRange: hrRange,
         rmssd: rmssd,
         movementIndex: movementIndex,
-      );
-
-      generatedEpochs.add(epoch);
+      ));
       epochIndex++;
     }
 
-    if (generatedEpochs.isEmpty) {
+    if (rawFeatures.isEmpty) {
       debugPrint('[SleepEngine] No valid sleep epochs generated from offline exercise');
       return null;
+    }
+
+    // Compute 10th-percentile resting HR for the session before staging epochs
+    // so individuals with naturally lower (e.g., 48 bpm) or higher (e.g., 72 bpm) resting HR
+    // are staged accurately even on their first recorded night.
+    final sortedHrs = List<double>.from(allHr)..sort();
+    final p10Idx = (sortedHrs.length * 0.10).floor().clamp(0, sortedHrs.length - 1);
+    final sessionRestingHr = sortedHrs[p10Idx];
+    final effectiveStagingBaselineHr = (priorBaselineRestingHr == 60.0)
+        ? sessionRestingHr
+        : (0.5 * priorBaselineRestingHr + 0.5 * sessionRestingHr);
+
+    final sortedStds = List<double>.from(allHrStds)..sort();
+    final medianHrStd = sortedStds[sortedStds.length ~/ 2];
+
+    final generatedEpochs = <SleepEpoch>[];
+    for (final f in rawFeatures) {
+      final SleepStage stage;
+      if (isRrIntervals) {
+        stage = SleepStagingModel.classifyEpoch(
+          epochMovementIndex: f.movementIndex,
+          epochMeanHr: f.meanHr,
+          epochRmssd: f.rmssd > 0 ? f.rmssd : priorBaseline14DayRmssd * 0.8,
+          baselineRestingHr: effectiveStagingBaselineHr,
+          baselineRmssd: priorBaseline14DayRmssd,
+        );
+      } else {
+        stage = SleepStagingModel.classifyHrOnlyEpoch(
+          epochMeanHr: f.meanHr,
+          epochHrStd: f.hrStd,
+          epochHrRange: f.hrRange,
+          baselineRestingHr: effectiveStagingBaselineHr,
+          medianHrStd: medianHrStd,
+        );
+      }
+
+      generatedEpochs.add(SleepEpoch(
+        sessionId: sessionId,
+        timestamp: f.timestamp,
+        stage: stage,
+        meanHr: f.meanHr,
+        rmssd: f.rmssd,
+        movementIndex: f.movementIndex,
+      ));
     }
 
     // Apply temporal continuity smoothing across whole offline recording
@@ -447,26 +527,20 @@ class SleepEngine {
     final remMinutes = (remCount * 0.5).round();
     final lightMinutes = (lightCount * 0.5).round();
     final deepMinutes = (deepCount * 0.5).round();
+    final actualSleepMinutes = remMinutes + lightMinutes + deepMinutes;
 
-    // Overnight resting HR: 10th percentile
-    double restingHr = _baselineRestingHr;
-    if (allHr.isNotEmpty) {
-      allHr.sort();
-      final p10 = (allHr.length * 0.10).floor().clamp(0, allHr.length - 1);
-      restingHr = allHr[p10];
-    }
-
-    // Overnight average RMSSD
-    final avgRmssd = allRmssd.isNotEmpty
+    final avgRmssd = isRrIntervals && allRmssd.isNotEmpty
         ? allRmssd.reduce((a, b) => a + b) / allRmssd.length
-        : _baseline14DayRmssd;
+        : 0.0;
+    final hasHrvData = isRrIntervals && avgRmssd > 0;
 
     final recovery = RecoveryScoreCalculator.calculate(
-      durationMinutes: durationMinutes,
+      durationMinutes: actualSleepMinutes > 0 ? actualSleepMinutes : durationMinutes,
       deepMinutes: deepMinutes,
       remMinutes: remMinutes,
       nightRmssd: avgRmssd,
-      baseline14DayRmssd: _baseline14DayRmssd,
+      baseline14DayRmssd: priorBaseline14DayRmssd,
+      hasHrvData: hasHrvData,
     );
 
     final session = SleepSession(
@@ -478,25 +552,16 @@ class SleepEngine {
       remMinutes: remMinutes,
       lightMinutes: lightMinutes,
       deepMinutes: deepMinutes,
-      restingHr: restingHr,
+      restingHr: sessionRestingHr,
       avgRmssd: avgRmssd,
       recoveryScore: recovery.totalScore,
       syncedToHealth: false,
+      dataSource: isRrIntervals
+          ? SleepSession.sourceOfflinePpi
+          : SleepSession.sourceOfflineHrOnly,
     );
 
-    // Save to SQLite
-    await _database.insertSleepSession(session);
-    await _database.insertSleepEpochs(smoothedEpochs);
-
-    // Trigger Notification
-    _notifications.showSleepSummary(
-      recoveryScore: session.recoveryScore,
-      durationHours: durationMinutes / 60.0,
-      deepPercent: session.deepPercentage.round(),
-    );
-
-    debugPrint('[SleepEngine] Successfully imported offline sleep: ${session.durationFormatted}, recovery: ${session.recoveryScore}');
-    return session;
+    return (session: session, epochs: smoothedEpochs);
   }
 
   void _emitLiveStatus() {
@@ -523,4 +588,22 @@ class SleepEngine {
     _statusTicker?.cancel();
     _statusController.close();
   }
+}
+
+class _OfflineEpochFeature {
+  final DateTime timestamp;
+  final double meanHr;
+  final double hrStd;
+  final double hrRange;
+  final double rmssd;
+  final double movementIndex;
+
+  const _OfflineEpochFeature({
+    required this.timestamp,
+    required this.meanHr,
+    required this.hrStd,
+    required this.hrRange,
+    required this.rmssd,
+    required this.movementIndex,
+  });
 }

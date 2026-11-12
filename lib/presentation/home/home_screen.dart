@@ -8,6 +8,7 @@ import '../../features/sleep/sleep_engine.dart';
 import '../../features/sleep/sleep_session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/metric_card.dart';
+import '../widgets/offline_sync_helper.dart';
 import '../widgets/pulse_indicator.dart';
 import '../widgets/recovery_gauge.dart';
 import '../widgets/sedentary_progress_bar.dart';
@@ -245,42 +246,11 @@ class HomeScreen extends ConsumerWidget {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                     onPressed: isBleConnected
-                        ? () async {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Row(
-                                  children: [
-                                    const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(strings.readingDeviceExercises),
-                                  ],
-                                ),
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-
-                            final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep();
-                            if (context.mounted) {
-                              if (session != null) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(strings.offlineSyncSuccess),
-                                    backgroundColor: AppTheme.recoveryGood,
-                                  ),
-                                );
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(strings.noExercisesFound),
-                                  ),
-                                );
-                              }
-                            }
-                          }
+                        ? () => runOfflineSyncWithModal(
+                              context: context,
+                              ref: ref,
+                              strings: strings,
+                            )
                         : null,
                     icon: const Icon(Icons.download_for_offline, size: 18),
                     label: Text(
@@ -357,7 +327,7 @@ class HomeScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('知道了 / Got it', style: TextStyle(color: AppTheme.polarCyan)),
+            child: Text(strings.gotIt, style: const TextStyle(color: AppTheme.polarCyan)),
           ),
         ],
       ),
@@ -410,9 +380,11 @@ class HomeScreen extends ConsumerWidget {
                       const SizedBox(height: 10),
                       _buildMetricRow(
                         strings.hrvTitle,
-                        '${session.avgRmssd.round()} ${strings.ms}',
+                        session.hasHrvData
+                            ? '${session.avgRmssd.round()} ${strings.ms}'
+                            : strings.hrvUnavailableShort,
                         Icons.insights,
-                        AppTheme.polarCyan,
+                        session.hasHrvData ? AppTheme.polarCyan : Colors.amber,
                       ),
                       const SizedBox(height: 10),
                       _buildMetricRow(
