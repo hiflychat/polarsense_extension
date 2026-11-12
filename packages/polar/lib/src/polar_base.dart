@@ -606,6 +606,16 @@ class Polar {
     return (jsonDecode(result) as Map).cast<String, dynamic>();
   }
 
+  /// Fetch cached battery level, charging state, and ready SDK features from native wrapper.
+  Future<Map<String, dynamic>> getCachedDeviceStatus(String identifier) async {
+    if (!Platform.isAndroid) return {};
+    final result = await _methodChannel.invokeMapMethod<String, dynamic>(
+      'getCachedDeviceStatus',
+      identifier,
+    );
+    return result ?? {};
+  }
+
   /// Set [LedConfig] to enable or disable blinking LEDs (Verity Sense 2.2.1+).
   ///
   /// - Parameters:

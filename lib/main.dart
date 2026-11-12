@@ -131,7 +131,12 @@ class _MainNavigationShellState extends ConsumerState<MainNavigationShell> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: List.generate(_screens.length, (i) {
+          return TickerMode(
+            enabled: _currentIndex == i,
+            child: _screens[i],
+          );
+        }),
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,

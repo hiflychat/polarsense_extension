@@ -115,6 +115,8 @@ class PolarBleManager {
   DateTime? _lastDiscoveredEmitTime;
   DateTime? _lastHealingAttempt;
   Timer? _streamWatchdogTimer;
+  Timer? _startupFallbackTimer;
+  Timer? _batterySyncTimer;
 
   StreamSubscription? _deviceConnectedSub;
   StreamSubscription? _deviceDisconnectedSub;
@@ -208,13 +210,30 @@ class PolarBleManager {
         _safeAdd(_batteryStreamController, _cachedBatteryLevel!);
       }
 
-      // Safety fallback: if feature readiness callback is delayed, start streams after GATT stabilizes
-      Future.delayed(const Duration(milliseconds: 3000), () {
+      // Immediately check native wrapper cache in case BAS/features fired during handshake
+      _syncCachedStatusFromNative(info.deviceId);
+
+      // Staggered battery cache re-check at 1.5s & 3s if real battery hasn't pushed yet
+      _batterySyncTimer?.cancel();
+      _batterySyncTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (_connectedDeviceId == info.deviceId && _batteryLevel == null) {
+          _syncCachedStatusFromNative(info.deviceId);
+        }
+      });
+
+      // Safety fallback: if readiness callbacks delay, prioritize HR first, then PMD ACC+PPI
+      _startupFallbackTimer?.cancel();
+      _startupFallbackTimer = Timer(const Duration(milliseconds: 4500), () {
         if (_connectedDeviceId == info.deviceId &&
-            _connectionState == BleConnectionState.connected &&
+            (_connectionState == BleConnectionState.connected ||
+                _connectionState == BleConnectionState.streaming) &&
             !_isSyncingOffline) {
-          debugPrint('[BLE] Feature readiness timeout fallback -> starting sensor streams');
-          _startSensorStreams(info.deviceId);
+          debugPrint('[BLE] Startup readiness fallback -> ensuring HR & PMD streams');
+          _syncCachedStatusFromNative(info.deviceId);
+          _startHrStreamIfNeeded(info.deviceId);
+          if (_accSub == null || _ppiSub == null) {
+            _startSensorStreams(info.deviceId);
+          }
         }
       });
     }, onError: (err) {
@@ -223,6 +242,10 @@ class PolarBleManager {
 
     _deviceDisconnectedSub = _polar.deviceDisconnected.listen((event) {
       debugPrint('[BLE] Device disconnected: ${event.info.deviceId}');
+      _startupFallbackTimer?.cancel();
+      _startupFallbackTimer = null;
+      _batterySyncTimer?.cancel();
+      _batterySyncTimer = null;
       _updateState(BleConnectionState.disconnected);
       _connectedDeviceId = null;
       _readyFeatures.clear();
@@ -245,11 +268,13 @@ class PolarBleManager {
 
     _batterySub = _polar.batteryLevel.listen((event) {
       debugPrint('[BLE] Real battery level received: ${event.level}% for ${event.identifier}');
-      _batteryLevel = event.level;
-      _cachedBatteryLevel = event.level;
-      _safeAdd(_batteryStreamController, event.level);
-      // Persist latest known battery level for fast display on reconnect
-      _database.setSetting('last_battery_level', event.level.toString());
+      if (_batteryLevel != event.level) {
+        _batteryLevel = event.level;
+        _cachedBatteryLevel = event.level;
+        _safeAdd(_batteryStreamController, event.level);
+        // Persist latest known battery level asynchronously without blocking callbacks
+        unawaited(_database.setSetting('last_battery_level', event.level.toString()));
+      }
     }, onError: (err) {
       debugPrint('[BLE] batteryLevel stream error: $err');
     });
@@ -257,18 +282,26 @@ class PolarBleManager {
     _batteryChargingSub = _polar.batteryChargingStatus.listen((event) {
       debugPrint('[BLE] Battery charging status: ${event.chargingStatus} on ${event.identifier}');
       final charging = event.chargingStatus == PolarChargeState.charging;
-      _isCharging = charging;
-      _safeAdd(_chargingStreamController, charging);
+      if (_isCharging != charging) {
+        _isCharging = charging;
+        _safeAdd(_chargingStreamController, charging);
+      }
     }, onError: (err) {
       debugPrint('[BLE] batteryChargingStatus stream error: $err');
     });
 
     _featuresReadinessSub = _polar.sdkFeaturesReadiness.listen((event) {
       debugPrint('[BLE] SDK Features readiness: ${event.ready} for ${event.identifier}');
-      if (event.identifier == _connectedDeviceId) {
+      if (event.identifier == _connectedDeviceId && !_isSyncingOffline) {
         _readyFeatures.addAll(event.ready);
-        if (event.ready.contains(PolarSdkFeature.onlineStreaming) && !_isSyncingOffline) {
-          _startSensorStreams(event.identifier);
+        if (event.ready.contains(PolarSdkFeature.batteryInfo)) {
+          _syncCachedStatusFromNative(event.identifier);
+        }
+        if (event.ready.contains(PolarSdkFeature.hr)) {
+          _startHrStreamIfNeeded(event.identifier);
+        }
+        if (event.ready.contains(PolarSdkFeature.onlineStreaming)) {
+          _schedulePmdStartup(event.identifier);
         }
       }
     }, onError: (err) {
@@ -277,15 +310,106 @@ class PolarBleManager {
 
     _featureReadySub = _polar.sdkFeatureReady.listen((event) {
       debugPrint('[BLE] SDK Feature ready: ${event.feature} on ${event.identifier}');
-      if (event.identifier == _connectedDeviceId) {
+      if (event.identifier == _connectedDeviceId && !_isSyncingOffline) {
         _readyFeatures.add(event.feature);
-        if (event.feature == PolarSdkFeature.onlineStreaming && !_isSyncingOffline) {
-          _startSensorStreams(event.identifier);
+        if (event.feature == PolarSdkFeature.batteryInfo) {
+          _syncCachedStatusFromNative(event.identifier);
+        } else if (event.feature == PolarSdkFeature.hr) {
+          // Start Standard BLE Heart Rate Service immediately without waiting for PMD
+          _startHrStreamIfNeeded(event.identifier);
+        } else if (event.feature == PolarSdkFeature.onlineStreaming) {
+          _schedulePmdStartup(event.identifier);
         }
       }
     }, onError: (err) {
       debugPrint('[BLE] sdkFeatureReady stream error: $err');
     });
+  }
+
+  Future<void> _syncCachedStatusFromNative(String deviceId) async {
+    if (_connectedDeviceId != deviceId || _isMockMode) return;
+    try {
+      final cached = await _polar.getCachedDeviceStatus(deviceId);
+      if (_connectedDeviceId != deviceId) return;
+
+      final bat = cached['batteryLevel'];
+      if (bat is int && bat >= 0 && bat <= 100 && _batteryLevel != bat) {
+        _batteryLevel = bat;
+        _cachedBatteryLevel = bat;
+        _safeAdd(_batteryStreamController, bat);
+        unawaited(_database.setSetting('last_battery_level', bat.toString()));
+      }
+
+      final chargingStr = cached['chargingStatus'] as String?;
+      if (chargingStr != null) {
+        final ch = chargingStr.toUpperCase() == 'CHARGING';
+        if (_isCharging != ch) {
+          _isCharging = ch;
+          _safeAdd(_chargingStreamController, ch);
+        }
+      }
+
+      final feats = cached['readyFeatures'];
+      if (feats is List) {
+        for (final f in feats) {
+          try {
+            _readyFeatures.add(PolarSdkFeature.fromJson(f.toString()));
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint('[BLE] Cached status sync skipped: $e');
+    }
+  }
+
+  /// Yields briefly before launching heavy PMD (ACC + PPI) streams so BAS (Battery 0x180F)
+  /// and standard HRS (Heart Rate 0x180D) complete their initial GATT reads/CCCD writes first.
+  void _schedulePmdStartup(String deviceId) {
+    if (_isStartingStreams || _isSyncingOffline || _connectedDeviceId != deviceId) return;
+    if (_accSub != null && _ppiSub != null) return;
+
+    final delayMs = (_readyFeatures.contains(PolarSdkFeature.batteryInfo) &&
+            _readyFeatures.contains(PolarSdkFeature.hr))
+        ? 250
+        : 1000;
+
+    Future.delayed(Duration(milliseconds: delayMs), () {
+      if (_connectedDeviceId == deviceId && !_isSyncingOffline) {
+        _startSensorStreams(deviceId);
+      }
+    });
+  }
+
+  /// Starts lightweight standard BLE Heart Rate Service (0x180D) independently of PMD streams.
+  void _startHrStreamIfNeeded(String deviceId) {
+    if (_isMockMode || _isSyncingOffline || _connectedDeviceId != deviceId) return;
+    if (_hrSub != null) return;
+
+    try {
+      debugPrint('[BLE] Starting standard HR stream (0x180D) for $deviceId');
+      _hrSub = _polar.startHrStreaming(deviceId).listen(
+        (hrData) {
+          _lastSampleReceivedTime = DateTime.now();
+          for (final sample in hrData.samples) {
+            if (sample.hr > 0 && sample.hr < 250) {
+              _updateCurrentHr(sample.hr);
+            }
+          }
+          if (_connectionState == BleConnectionState.connected) {
+            _updateState(BleConnectionState.streaming);
+          }
+        },
+        onError: (err) {
+          debugPrint('[BLE] HR stream error: $err');
+          _hrSub?.cancel();
+          _hrSub = null;
+        },
+        cancelOnError: false,
+      );
+    } catch (e) {
+      debugPrint('[BLE] Error starting HR stream: $e');
+      _hrSub = null;
+    }
   }
 
   Future<void> _loadPairedDeviceAndAutoConnect() async {
@@ -537,94 +661,83 @@ class PolarBleManager {
     _isStartingStreams = true;
 
     try {
-      debugPrint('[BLE] Starting sensor streams for $deviceId');
+      debugPrint('[BLE] Starting balanced sensor streams for $deviceId');
 
-      // Cleanly cancel any previous subscriptions before starting to avoid duplicate GATT hooks
-      _accSub?.cancel();
-      _accSub = null;
-      _ppiSub?.cancel();
-      _ppiSub = null;
-      _hrSub?.cancel();
-      _hrSub = null;
-
+      // 0. Ensure Standard BLE Heart Rate Service (0x180D) is active if HR feature is ready
+      if (_hrSub == null &&
+          (_readyFeatures.contains(PolarSdkFeature.hr) || _readyFeatures.isEmpty)) {
+        _startHrStreamIfNeeded(deviceId);
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
       if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
 
-      // 1. Optical Heart Rate PPI Stream (Instantaneous optical HR + pulse intervals)
-      // This is the primary optical measurement of Polar Verity Sense
-      try {
-        debugPrint('[BLE] Starting Optical PPI stream for $deviceId');
-        _ppiSub = _polar.startPpiStreaming(deviceId).listen(
-          (ppiData) {
-            _lastSampleReceivedTime = DateTime.now();
-            _safeAdd(_ppiStreamController, ppiData);
-            for (final sample in ppiData.samples) {
-              if (sample.hr > 0 && sample.hr < 250) {
-                _updateCurrentHr(sample.hr);
-              }
-            }
-          },
-          onError: (err) {
-            debugPrint('[BLE] PPI stream error: $err');
-            _ppiSub?.cancel();
-            _ppiSub = null;
-          },
-          cancelOnError: false,
-        );
-      } catch (e) {
-        debugPrint('[BLE] Error starting PPI stream: $e');
-        _ppiSub = null;
+      // 1. Accelerometer Stream: query supported settings ONCE and pick 26Hz (if supported) or 52Hz
+      // instead of calling startAccStreaming(settings: null) which invokes maxSettings()!
+      if (_accSub == null) {
+        PolarSensorSetting? accSetting;
+        try {
+          final available = await _polar
+              .requestStreamSettings(deviceId, PolarDataType.acc)
+              .timeout(const Duration(seconds: 4));
+          accSetting = resolveOptimalAccSettings(available);
+          debugPrint('[BLE] Resolved optimal ACC settings: ${accSetting.settings}');
+        } catch (e) {
+          debugPrint('[BLE] requestStreamSettings(ACC) fallback: $e');
+          accSetting = resolveOptimalAccSettings();
+        }
+
+        if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
+
+        try {
+          _accSub = _polar
+              .startAccStreaming(deviceId, settings: accSetting)
+              .listen(
+            (data) {
+              _lastSampleReceivedTime = DateTime.now();
+              _safeAdd(_accStreamController, data);
+            },
+            onError: (err) {
+              debugPrint('[BLE] ACC stream error: $err');
+              _accSub?.cancel();
+              _accSub = null;
+            },
+            cancelOnError: false,
+          );
+        } catch (e) {
+          debugPrint('[BLE] Error starting ACC stream: $e');
+          _accSub = null;
+        }
+
+        // Stagger PMD writes to prevent Android GATT status 133 collisions
+        await Future.delayed(const Duration(milliseconds: 350));
+        if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
       }
 
-      // Stagger GATT writes by 250ms so Android Bluetooth stack does not collide (prevents status 133 / GATT crash)
-      await Future.delayed(const Duration(milliseconds: 250));
-      if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
-
-      // 2. Accelerometer Stream (Native Polar 52Hz / 8G default - 100% compatible across all firmware without SDK mode)
-      try {
-        debugPrint('[BLE] Starting native ACC stream for $deviceId');
-        _accSub = _polar.startAccStreaming(deviceId).listen(
-          (data) {
-            _lastSampleReceivedTime = DateTime.now();
-            _safeAdd(_accStreamController, data);
-          },
-          onError: (err) {
-            debugPrint('[BLE] ACC stream error: $err');
-            _accSub?.cancel();
-            _accSub = null;
-          },
-          cancelOnError: false,
-        );
-      } catch (e) {
-        debugPrint('[BLE] Error starting ACC stream: $e');
-        _accSub = null;
-      }
-
-      // Stagger GATT writes before starting standard HR stream
-      await Future.delayed(const Duration(milliseconds: 250));
-      if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
-
-      // 3. Heart Rate Stream (Standard Bluetooth LE Heart Rate Service 0x180D)
-      try {
-        debugPrint('[BLE] Starting standard HR stream for $deviceId');
-        _hrSub = _polar.startHrStreaming(deviceId).listen(
-          (hrData) {
-            _lastSampleReceivedTime = DateTime.now();
-            for (final sample in hrData.samples) {
-              if (sample.hr > 0 && sample.hr < 250) {
-                _updateCurrentHr(sample.hr);
+      // 2. Optical Heart Rate PPI Stream (instantaneous optical pulse-to-pulse intervals + HR)
+      if (_ppiSub == null) {
+        try {
+          debugPrint('[BLE] Starting Optical PPI stream for $deviceId');
+          _ppiSub = _polar.startPpiStreaming(deviceId).listen(
+            (ppiData) {
+              _lastSampleReceivedTime = DateTime.now();
+              _safeAdd(_ppiStreamController, ppiData);
+              for (final sample in ppiData.samples) {
+                if (sample.hr > 0 && sample.hr < 250) {
+                  _updateCurrentHr(sample.hr);
+                }
               }
-            }
-          },
-          onError: (err) {
-            debugPrint('[BLE] HR stream error: $err');
-            _hrSub?.cancel();
-            _hrSub = null;
-          },
-          cancelOnError: false,
-        );
-      } catch (e) {
-        debugPrint('[BLE] Error starting HR stream: $e');
-        _hrSub = null;
+            },
+            onError: (err) {
+              debugPrint('[BLE] PPI stream error: $err');
+              _ppiSub?.cancel();
+              _ppiSub = null;
+            },
+            cancelOnError: false,
+          );
+        } catch (e) {
+          debugPrint('[BLE] Error starting PPI stream: $e');
+          _ppiSub = null;
+        }
       }
 
       if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
@@ -638,54 +751,95 @@ class PolarBleManager {
     }
   }
 
-  /// Selects the native 52Hz actigraphy sample rate instead of high-frequency rates,
-  /// completely eliminating GC pauses, event channel queueing, and battery drain.
+  /// Selects balanced actigraphy settings (prefers 26 Hz if supported by the sensor,
+  /// otherwise native 52 Hz with 8G range, 16-bit, 3 channels) instead of maxSettings()
+  /// (which can pick 208/416 Hz in SDK mode and overwhelm BLE/UI event channels).
   static PolarSensorSetting resolveOptimalAccSettings([PolarSensorSetting? available]) {
-    return PolarSensorSetting({
-      PolarSettingType.sampleRate: 52,
-      PolarSettingType.range: 8,
-    });
-  }
-
-  void _startDefaultAccStream(String deviceId) {
-    if (_accSub != null || _connectedDeviceId != deviceId) return;
-    try {
-      debugPrint('[BLE] Starting fallback native ACC stream for $deviceId');
-      _accSub = _polar.startAccStreaming(deviceId).listen(
-        (data) {
-          _lastSampleReceivedTime = DateTime.now();
-          _safeAdd(_accStreamController, data);
-        },
-        onError: (err) {
-          debugPrint('[BLE] ACC default stream error: $err');
-          _accSub?.cancel();
-          _accSub = null;
-        },
-        cancelOnError: false,
-      );
-    } catch (e) {
-      debugPrint('[BLE] Error starting default ACC stream: $e');
-      _accSub = null;
+    if (available == null || available.settings.isEmpty) {
+      return PolarSensorSetting({
+        PolarSettingType.sampleRate: PolarConstants.accSampleRate,
+        PolarSettingType.range: PolarConstants.accRange,
+        PolarSettingType.resolution: 16,
+        PolarSettingType.channels: 3,
+      });
     }
+
+    final selected = <PolarSettingType, int>{};
+    final s = available.settings;
+
+    final rates = s[PolarSettingType.sampleRate];
+    if (rates != null && rates.isNotEmpty) {
+      final sorted = List<int>.from(rates)..sort();
+      if (sorted.contains(PolarConstants.preferredAccSampleRate)) {
+        selected[PolarSettingType.sampleRate] = PolarConstants.preferredAccSampleRate;
+      } else if (sorted.contains(PolarConstants.accSampleRate)) {
+        selected[PolarSettingType.sampleRate] = PolarConstants.accSampleRate;
+      } else {
+        selected[PolarSettingType.sampleRate] = sorted.firstWhere(
+          (r) => r >= PolarConstants.preferredAccSampleRate,
+          orElse: () => sorted.last,
+        );
+      }
+    } else {
+      selected[PolarSettingType.sampleRate] = PolarConstants.accSampleRate;
+    }
+
+    final ranges = s[PolarSettingType.range];
+    if (ranges != null && ranges.isNotEmpty) {
+      final sorted = List<int>.from(ranges)..sort();
+      selected[PolarSettingType.range] = sorted.contains(PolarConstants.accRange)
+          ? PolarConstants.accRange
+          : sorted.firstWhere((r) => r >= 4, orElse: () => sorted.last);
+    }
+
+    final resolutions = s[PolarSettingType.resolution];
+    if (resolutions != null && resolutions.isNotEmpty) {
+      final sorted = List<int>.from(resolutions)..sort();
+      selected[PolarSettingType.resolution] =
+          sorted.contains(16) ? 16 : sorted.first;
+    }
+
+    final channels = s[PolarSettingType.channels];
+    if (channels != null && channels.isNotEmpty) {
+      selected[PolarSettingType.channels] =
+          channels.contains(3) ? 3 : channels.first;
+    }
+
+    final rangeMilli = s[PolarSettingType.rangeMilliunit];
+    if (rangeMilli != null && rangeMilli.isNotEmpty) {
+      selected[PolarSettingType.rangeMilliunit] = rangeMilli.first;
+    }
+
+    return PolarSensorSetting(selected);
   }
 
   void _startStreamWatchdog(String deviceId) {
     _streamWatchdogTimer?.cancel();
-    _streamWatchdogTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    _streamWatchdogTimer = Timer.periodic(const Duration(seconds: 8), (timer) {
       if (_connectedDeviceId != deviceId || _connectionState != BleConnectionState.streaming) {
         timer.cancel();
         return;
       }
       if (_isMockMode || _isSyncingOffline) return;
 
+      // Gently re-sync battery if still unknown
+      if (_batteryLevel == null) {
+        _syncCachedStatusFromNative(deviceId);
+      }
+
+      // Recover HR stream independently without tearing down healthy ACC/PPI streams
+      if (_hrSub == null && _readyFeatures.contains(PolarSdkFeature.hr)) {
+        _startHrStreamIfNeeded(deviceId);
+      }
+
       final now = DateTime.now();
-      // Watchdog timeout is 20 seconds, with a 30-second cooldown between healing attempts
+      // Full heal only when ALL telemetry has completely stalled for > 35 seconds
       if (_lastSampleReceivedTime != null &&
-          now.difference(_lastSampleReceivedTime!) > const Duration(seconds: 20)) {
+          now.difference(_lastSampleReceivedTime!) > const Duration(seconds: 35)) {
         if (_lastHealingAttempt == null ||
-            now.difference(_lastHealingAttempt!) > const Duration(seconds: 30)) {
+            now.difference(_lastHealingAttempt!) > const Duration(seconds: 45)) {
           _lastHealingAttempt = now;
-          debugPrint('[BLE Watchdog] Stream stalled for >20s! Attempting auto-healing for $deviceId...');
+          debugPrint('[BLE Watchdog] All streams stalled >35s! Healing for $deviceId...');
           _healSensorStreams(deviceId);
         }
       }
@@ -1177,6 +1331,10 @@ class PolarBleManager {
   }
 
   void dispose() {
+    _startupFallbackTimer?.cancel();
+    _startupFallbackTimer = null;
+    _batterySyncTimer?.cancel();
+    _batterySyncTimer = null;
     _cancelStreams();
     _stopMockStreaming();
     _deviceConnectedSub?.cancel();

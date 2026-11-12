@@ -255,7 +255,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(strings.aboutAppName, style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text('${strings.version} 1.0.17 • Polar BLE SDK 7.12.0', style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                  Text('${strings.version} 1.0.18 • Polar BLE SDK 7.12.0', style: const TextStyle(fontSize: 12, color: Colors.white54)),
                   const SizedBox(height: 8),
                   Text(
                     strings.hardwareSimulatorDesc,

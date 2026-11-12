@@ -383,27 +383,33 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               children: [
                 // Battery & Charging status
                 Expanded(
-                  child: StreamBuilder<int>(
-                    stream: bleManager.batteryStream,
-                    initialData: bleManager.effectiveBatteryLevel,
-                    builder: (context, snapshot) {
-                      final battery = snapshot.data ?? bleManager.effectiveBatteryLevel;
-                      final isReal = bleManager.batteryLevel != null;
-                      final charging = bleManager.isCharging;
-                      String batText = '--';
-                      if (battery != null) {
-                        batText = '$battery%';
-                        if (charging) {
-                          batText += ' ⚡';
-                        } else if (!isReal) {
-                          batText += ' (${strings.cachedStatus})';
-                        }
-                      }
-                      return _buildMiniMetric(
-                        charging ? Icons.battery_charging_full : Icons.battery_std,
-                        batText,
-                        strings.sensorBattery,
-                        battery != null && battery > 20 ? AppTheme.recoveryGood : AppTheme.polarRed,
+                  child: StreamBuilder<bool>(
+                    stream: bleManager.chargingStream,
+                    initialData: bleManager.isCharging,
+                    builder: (context, chargeSnap) {
+                      final charging = chargeSnap.data ?? bleManager.isCharging;
+                      return StreamBuilder<int>(
+                        stream: bleManager.batteryStream,
+                        initialData: bleManager.effectiveBatteryLevel,
+                        builder: (context, snapshot) {
+                          final battery = snapshot.data ?? bleManager.effectiveBatteryLevel;
+                          final isReal = bleManager.batteryLevel != null;
+                          String batText = '--';
+                          if (battery != null) {
+                            batText = '$battery%';
+                            if (charging) {
+                              batText += ' ⚡';
+                            } else if (!isReal) {
+                              batText += ' (${strings.cachedStatus})';
+                            }
+                          }
+                          return _buildMiniMetric(
+                            charging ? Icons.battery_charging_full : Icons.battery_std,
+                            batText,
+                            strings.sensorBattery,
+                            battery != null && battery > 20 ? AppTheme.recoveryGood : AppTheme.polarRed,
+                          );
+                        },
                       );
                     },
                   ),

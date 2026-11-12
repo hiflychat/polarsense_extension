@@ -98,15 +98,34 @@ void main() {
       expect(vmuHairWashing, lessThan(SedentaryEngine.activeArmVmuThreshold));
     });
 
-    test('PolarBleManager.resolveOptimalAccSettings selects native 52Hz', () {
-      final available = PolarSensorSetting({
-        PolarSettingType.sampleRate: 416,
-        PolarSettingType.range: 16,
+    test('PolarBleManager.resolveOptimalAccSettings selects 26Hz/52Hz balanced settings', () {
+      // Case 1: Sensor exposes 26..416 Hz -> must pick 26 Hz (halves BLE/UI load) & 8g
+      final multiRate = PolarSensorSetting.fromJson({
+        'settings': {
+          'SAMPLE_RATE': [26, 52, 104, 208, 416],
+          'RANGE': [2, 4, 8, 16],
+          'RESOLUTION': [16],
+          'CHANNELS': [3],
+        },
       });
+      final optMulti = PolarBleManager.resolveOptimalAccSettings(multiRate);
+      expect(optMulti.settings[PolarSettingType.sampleRate], [26]);
+      expect(optMulti.settings[PolarSettingType.range], [8]);
+      expect(optMulti.settings[PolarSettingType.resolution], [16]);
+      expect(optMulti.settings[PolarSettingType.channels], [3]);
 
-      final optimal = PolarBleManager.resolveOptimalAccSettings(available);
-      expect(optimal, isA<PolarSensorSetting>());
-      expect(optimal.settings.containsKey(PolarSettingType.sampleRate), isTrue);
+      // Case 2: Standard Verity Sense exposes only 52 Hz -> picks 52 Hz
+      final standardOnly = PolarSensorSetting({
+        PolarSettingType.sampleRate: 52,
+        PolarSettingType.range: 8,
+      });
+      final optStd = PolarBleManager.resolveOptimalAccSettings(standardOnly);
+      expect(optStd.settings[PolarSettingType.sampleRate], [52]);
+      expect(optStd.settings[PolarSettingType.range], [8]);
+
+      // Case 3: Fallback when available is null
+      final optFallback = PolarBleManager.resolveOptimalAccSettings(null);
+      expect(optFallback.settings.containsKey(PolarSettingType.sampleRate), isTrue);
     });
   });
 }

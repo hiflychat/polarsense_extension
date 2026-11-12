@@ -62,6 +62,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.GZIPInputStream
 
 fun Any?.discard() = Unit
@@ -219,6 +220,11 @@ class PolarPlugin :
                 inspectDeviceStorage(call, result)
             }
 
+            "getCachedDeviceStatus" -> {
+                val identifier = call.arguments as String
+                result.success(wrapper.getCachedStatus(identifier))
+            }
+
             "setLedConfig" -> {
                 setLedConfig(call, result)
             }
@@ -277,15 +283,19 @@ class PolarPlugin :
                 initApi()
 
                 searchSubscription =
-                    wrapper.api.searchForDevice().subscribe({
-                        runOnUiThread { events.success(gson.toJson(it)) }
-                    }, {
-                        runOnUiThread {
-                            events.error(it.toString(), it.message, null)
-                        }
-                    }, {
-                        runOnUiThread { events.endOfStream() }
-                    })
+                    wrapper.api
+                        .searchForDevice()
+                        .observeOn(Schedulers.computation())
+                        .map { gson.toJson(it) }
+                        .subscribe({ json ->
+                            runOnUiThread { events.success(json) }
+                        }, {
+                            runOnUiThread {
+                                events.error(it.toString(), it.message, null)
+                            }
+                        }, {
+                            runOnUiThread { events.endOfStream() }
+                        })
             }
 
             override fun onCancel(arguments: Any?) {
@@ -790,45 +800,47 @@ class PolarPlugin :
 
         Single
             .fromCallable {
-                when {
-                    entry.path.startsWith("OFFLINE_REC::") -> {
-                        val parts = entry.path.split("::", limit = 3)
-                        val type = PolarDeviceDataType.valueOf(parts[1])
-                        val realPath = parts[2]
-                        val allOffline = wrapper.api.listOfflineRecordings(identifier).toList().blockingGet()
-                        val matchedEntry =
-                            allOffline.firstOrNull { it.path == realPath }
-                                ?: PolarOfflineRecordingEntry(realPath, 0L, entry.date, type)
-                        val data = wrapper.api.getOfflineRecord(identifier, matchedEntry).blockingGet()
-                        when (data) {
-                            is PolarOfflineRecordingData.HrOfflineRecording -> {
-                                PolarExerciseData(1, data.data.samples.map { it.hr })
+                val exerciseData =
+                    when {
+                        entry.path.startsWith("OFFLINE_REC::") -> {
+                            val parts = entry.path.split("::", limit = 3)
+                            val type = PolarDeviceDataType.valueOf(parts[1])
+                            val realPath = parts[2]
+                            val allOffline = wrapper.api.listOfflineRecordings(identifier).toList().blockingGet()
+                            val matchedEntry =
+                                allOffline.firstOrNull { it.path == realPath }
+                                    ?: PolarOfflineRecordingEntry(realPath, 0L, entry.date, type)
+                            val data = wrapper.api.getOfflineRecord(identifier, matchedEntry).blockingGet()
+                            when (data) {
+                                is PolarOfflineRecordingData.HrOfflineRecording -> {
+                                    PolarExerciseData(1, data.data.samples.map { it.hr })
+                                }
+                                is PolarOfflineRecordingData.PpiOfflineRecording -> {
+                                    convertPpiOfflineToExerciseData(data)
+                                }
+                                else -> PolarExerciseData(1, emptyList())
                             }
-                            is PolarOfflineRecordingData.PpiOfflineRecording -> {
-                                convertPpiOfflineToExerciseData(data)
+                        }
+
+                        entry.path.startsWith("/U/0/") -> {
+                            val rawBytes = wrapper.api.getFile(identifier, entry.path).blockingGet()
+                            val bytes = gunzipIfNeeded(rawBytes, entry.path)
+                            if (entry.path.contains("SAMPLES2", ignoreCase = true)) {
+                                parsePbExerciseSamples2(bytes)
+                            } else {
+                                parsePbExerciseSamples(bytes)
                             }
-                            else -> PolarExerciseData(1, emptyList())
+                        }
+
+                        else -> {
+                            wrapper.api.fetchExercise(identifier, entry).blockingGet()
                         }
                     }
-
-                    entry.path.startsWith("/U/0/") -> {
-                        val rawBytes = wrapper.api.getFile(identifier, entry.path).blockingGet()
-                        val bytes = gunzipIfNeeded(rawBytes, entry.path)
-                        if (entry.path.contains("SAMPLES2", ignoreCase = true)) {
-                            parsePbExerciseSamples2(bytes)
-                        } else {
-                            parsePbExerciseSamples(bytes)
-                        }
-                    }
-
-                    else -> {
-                        wrapper.api.fetchExercise(identifier, entry).blockingGet()
-                    }
-                }
+                gson.toJson(exerciseData)
             }.subscribeOn(Schedulers.io())
-            .subscribe({ exerciseData ->
+            .subscribe({ json ->
                 runOnUiThread {
-                    result.success(gson.toJson(exerciseData))
+                    result.success(json)
                 }
             }, { err ->
                 runOnUiThread {
@@ -1098,8 +1110,20 @@ class PolarWrapper(
         ),
     private val sinks: MutableMap<Int, EventSink> = mutableMapOf(),
 ) : PolarBleApiCallbackProvider {
+    private val latestBatteryLevels = ConcurrentHashMap<String, Int>()
+    private val latestChargingStates = ConcurrentHashMap<String, String>()
+    private val readyFeaturesMap = ConcurrentHashMap<String, MutableSet<String>>()
+
     init {
         api.setApiCallback(this)
+    }
+
+    fun getCachedStatus(identifier: String): Map<String, Any?> {
+        return mapOf(
+            "batteryLevel" to latestBatteryLevels[identifier],
+            "chargingStatus" to latestChargingStates[identifier],
+            "readyFeatures" to (readyFeaturesMap[identifier]?.toList() ?: emptyList<String>()),
+        )
     }
 
     fun addSink(
@@ -1138,6 +1162,7 @@ class PolarWrapper(
         identifier: String,
         feature: PolarBleSdkFeature,
     ) {
+        readyFeaturesMap.computeIfAbsent(identifier) { ConcurrentHashMap.newKeySet() }.add(feature.name)
         success("sdkFeatureReady", listOf(identifier, feature.name))
     }
 
@@ -1146,6 +1171,8 @@ class PolarWrapper(
         ready: List<PolarBleSdkFeature>,
         unavailable: List<PolarBleSdkFeature>,
     ) {
+        val set = readyFeaturesMap.computeIfAbsent(identifier) { ConcurrentHashMap.newKeySet() }
+        ready.forEach { set.add(it.name) }
         success(
             "sdkFeaturesReadiness",
             listOf(
@@ -1157,6 +1184,9 @@ class PolarWrapper(
     }
 
     override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
+        readyFeaturesMap.remove(polarDeviceInfo.deviceId)
+        latestBatteryLevels.remove(polarDeviceInfo.deviceId)
+        latestChargingStates.remove(polarDeviceInfo.deviceId)
         success("deviceConnected", gson.toJson(polarDeviceInfo))
     }
 
@@ -1165,6 +1195,9 @@ class PolarWrapper(
     }
 
     override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
+        readyFeaturesMap.remove(polarDeviceInfo.deviceId)
+        latestBatteryLevels.remove(polarDeviceInfo.deviceId)
+        latestChargingStates.remove(polarDeviceInfo.deviceId)
         success(
             "deviceDisconnected",
             // The second argument is the `pairingError` field on iOS
@@ -1192,6 +1225,7 @@ class PolarWrapper(
         identifier: String,
         level: Int,
     ) {
+        latestBatteryLevels[identifier] = level
         success("batteryLevelReceived", listOf(identifier, level))
     }
 
@@ -1199,6 +1233,7 @@ class PolarWrapper(
         identifier: String,
         chargingStatus: ChargeState,
     ) {
+        latestChargingStates[identifier] = chargingStatus.name
         success("batteryChargingStatusReceived", listOf(identifier, chargingStatus.name))
     }
 
@@ -1213,7 +1248,9 @@ class PolarWrapper(
         identifier: String,
         powerSourcesState: PowerSourcesState,
     ) {
-        TODO("Not yet implemented")
+        // Safe handler: Verity Sense firmware / SDK 6.16+ invokes this during BAS updates;
+        // throwing TODO() aborted Battery Service callbacks.
+        Log.d("PolarPlugin", "powerSourcesStateReceived for $identifier: $powerSourcesState")
     }
 
     @Deprecated("", replaceWith = ReplaceWith(""))
@@ -1243,6 +1280,8 @@ class StreamingChannel(
         arguments: Any?,
         events: EventSink,
     ) {
+        subscription?.dispose()
+        subscription = null
         // Will be null for some features
         val settings = gson.fromJson(arguments as String, PolarSensorSetting::class.java)
 
@@ -1300,15 +1339,18 @@ class StreamingChannel(
             }
 
         subscription =
-            stream.subscribe({
-                runOnUiThread { events.success(gson.toJson(it)) }
-            }, {
-                runOnUiThread {
-                    events.error(it.toString(), it.message, null)
-                }
-            }, {
-                runOnUiThread { events.endOfStream() }
-            })
+            stream
+                .observeOn(Schedulers.computation())
+                .map { gson.toJson(it) }
+                .subscribe({ json ->
+                    runOnUiThread { events.success(json) }
+                }, {
+                    runOnUiThread {
+                        events.error(it.toString(), it.message, null)
+                    }
+                }, {
+                    runOnUiThread { events.endOfStream() }
+                })
     }
 
     override fun onCancel(arguments: Any?) {

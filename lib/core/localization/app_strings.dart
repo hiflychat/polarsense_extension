@@ -106,8 +106,8 @@ class AppStrings {
   String get cachedStatus => isZh ? '历史' : 'Cached';
   String get chargingStatus => isZh ? '充电中' : 'Charging';
   String get opticalHr => isZh ? '光学实时心率' : 'Optical HR';
-  String get accStreamTitle => isZh ? '52 Hz 运动姿态流' : 'ACC Stream 52 Hz';
-  String get accActive => isZh ? '52 Hz 姿态同步中 (手臂运动检测)' : 'Active (52 Hz arm posture synced)';
+  String get accStreamTitle => isZh ? '26/52 Hz 自适应姿态流' : 'ACC Stream (26/52 Hz)';
+  String get accActive => isZh ? '26/52 Hz 姿态同步中 (防久坐与体动检测)' : 'Active (26/52 Hz posture synced)';
   String get accWaiting => isZh ? '等待手环加速度采样...' : 'Waiting for samples...';
   String get hardwareSimulator => isZh ? '硬件模拟器 (开发者模式)' : 'Hardware Simulator (Developer Mode)';
   String get hardwareSimulatorDesc => isZh
