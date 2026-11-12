@@ -5,6 +5,7 @@ import 'package:polarsense_extension/core/ble/polar_ble_manager.dart';
 import 'package:polarsense_extension/core/database/models/sleep_record.dart';
 import 'package:polarsense_extension/features/sleep/hrv_calculator.dart';
 import 'package:polarsense_extension/features/sleep/recovery_score_calculator.dart';
+import 'package:polarsense_extension/features/sleep/sleep_session_controller.dart';
 import 'package:polarsense_extension/features/sleep/sleep_staging_model.dart';
 
 void main() {
@@ -184,6 +185,38 @@ void main() {
       expect(isAlreadyImported(baseDate.add(const Duration(minutes: 5))), isTrue);
       // 2 hours difference -> false (new session)
       expect(isAlreadyImported(baseDate.add(const Duration(hours: 2))), isFalse);
+    });
+
+    test('OfflineSyncResult distinguishes errors, empty scans, and synced sessions', () {
+      const errorResult = OfflineSyncResult(
+        entriesFound: 0,
+        errorMessage: 'SYSTEM_BUSY',
+        diagnostics: {'u0Paths': []},
+      );
+      expect(errorResult.isSuccess, isFalse);
+      expect(errorResult.errorMessage, 'SYSTEM_BUSY');
+
+      final session = SleepSession(
+        id: 'sense_20261112083000',
+        startTime: DateTime(2026, 11, 12, 0, 30),
+        endTime: DateTime(2026, 11, 12, 8, 0),
+        durationMinutes: 450,
+        wakeMinutes: 20,
+        remMinutes: 100,
+        lightMinutes: 230,
+        deepMinutes: 100,
+        restingHr: 54,
+        avgRmssd: 48,
+        recoveryScore: 90,
+        syncedToHealth: false,
+      );
+      final okResult = OfflineSyncResult(
+        session: session,
+        entriesFound: 1,
+        syncedCount: 1,
+      );
+      expect(okResult.isSuccess, isTrue);
+      expect(okResult.syncedCount, 1);
     });
   });
 }

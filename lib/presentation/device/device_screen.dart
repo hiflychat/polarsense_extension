@@ -5,6 +5,7 @@ import '../../core/localization/app_strings.dart';
 import '../../features/sedentary/sedentary_notifier.dart';
 import '../../features/sleep/sleep_session_controller.dart';
 import '../theme/app_theme.dart';
+import '../widgets/offline_sync_helper.dart';
 import '../widgets/pulse_indicator.dart';
 
 class DeviceScreen extends ConsumerStatefulWidget {
@@ -558,19 +559,30 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                         onPressed: isConnected
                             ? () async {
                                 if (isRecording) {
-                                  await bleManager.stopOfflineRecording();
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(strings.stopOfflineRecord)),
-                                    );
-                                  }
-                                } else {
-                                  await bleManager.startOfflineRecording();
+                                  final ok = await bleManager.stopOfflineRecording();
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: Text(strings.offlineRecordingActive),
-                                        backgroundColor: AppTheme.recoveryGood,
+                                        content: Text(
+                                          ok
+                                              ? strings.stopOfflineRecord
+                                              : (strings.isZh ? '停止录制失败，请确认手环处于蓝灯模式' : 'Failed to stop recording'),
+                                        ),
+                                        backgroundColor: ok ? AppTheme.darkCard : AppTheme.polarRed,
+                                      ),
+                                    );
+                                  }
+                                } else {
+                                  final ok = await bleManager.startOfflineRecording();
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          ok
+                                              ? strings.offlineRecordingActive
+                                              : (strings.isZh ? '开启手环离线录制失败，请重试' : 'Failed to start offline recording'),
+                                        ),
+                                        backgroundColor: ok ? AppTheme.recoveryGood : AppTheme.polarRed,
                                       ),
                                     );
                                   }
@@ -595,7 +607,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                         onPressed: isConnected
-                            ? () => _handleDeviceOfflineSync(context, ref, strings)
+                            ? () => runOfflineSyncWithModal(
+                                  context: context,
+                                  ref: ref,
+                                  strings: strings,
+                                )
                             : null,
                         icon: const Icon(Icons.download_for_offline, size: 16),
                         label: Text(
@@ -799,88 +815,5 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         );
       },
     );
-  }
-
-  Future<void> _handleDeviceOfflineSync(
-      BuildContext context, WidgetRef ref, AppStrings strings) async {
-    String progressMessage = strings.preparingSyncChannel;
-    StateSetter? modalSetState;
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: AppTheme.darkCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            modalSetState = setModalState;
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: AppTheme.polarCyan,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    strings.syncOfflineSleep,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    progressMessage,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13, color: Colors.white70),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep(
-      onProgress: (status) {
-        progressMessage = status;
-        modalSetState?.call(() {});
-      },
-    );
-
-    if (context.mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
-      if (session != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${strings.offlineSyncSuccess} (${session.durationFormatted}, ${strings.lastNightRecovery}: ${session.recoveryScore})',
-            ),
-            backgroundColor: AppTheme.recoveryGood,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(strings.noExercisesFound),
-            backgroundColor: AppTheme.darkCard,
-          ),
-        );
-      }
-    }
   }
 }

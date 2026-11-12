@@ -1,0 +1,2 @@
+-keep class com.polar.** { *; }
+-keep class dev.rexios.polar.** { *; }

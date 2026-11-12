@@ -18,6 +18,28 @@ final liveSleepStatusProvider = StreamProvider<LiveSleepStatus>((ref) {
   return engine.statusStream;
 });
 
+class OfflineSyncResult {
+  final SleepSession? session;
+  final int entriesFound;
+  final int syncedCount;
+  final int skippedAlreadySynced;
+  final int skippedTooShort;
+  final String? errorMessage;
+  final Map<String, dynamic>? diagnostics;
+
+  const OfflineSyncResult({
+    this.session,
+    this.entriesFound = 0,
+    this.syncedCount = 0,
+    this.skippedAlreadySynced = 0,
+    this.skippedTooShort = 0,
+    this.errorMessage,
+    this.diagnostics,
+  });
+
+  bool get isSuccess => session != null;
+}
+
 class SleepHistoryState {
   final List<SleepSession> sessions;
   final SleepSession? selectedSession;
@@ -105,8 +127,10 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
   }
 
   /// Synchronizes offline sleep recordings from Polar Verity Sense internal memory,
-  /// downloads recorded samples, runs on-device sleep staging, and persists the session.
-  Future<SleepSession?> syncOfflineSleep({Function(String status)? onProgress}) async {
+  /// returning detailed counts and diagnostic info alongside any imported session.
+  Future<OfflineSyncResult> syncOfflineSleepDetailed({
+    Function(String status)? onProgress,
+  }) async {
     final bleManager = _ref.read(polarBleManagerProvider);
 
     try {
@@ -118,9 +142,15 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
         final entries = await bleManager.listOfflineRecordings();
 
         if (entries.isEmpty) {
-          debugPrint('[SleepSync] No offline recordings found on device');
+          debugPrint(
+            '[SleepSync] No offline recordings found. error=${bleManager.lastSyncError}, diag=${bleManager.lastStorageDiagnostics}',
+          );
           state = state.copyWith(isLoading: false);
-          return null;
+          return OfflineSyncResult(
+            entriesFound: 0,
+            errorMessage: bleManager.lastSyncError,
+            diagnostics: bleManager.lastStorageDiagnostics,
+          );
         }
 
         // Sort by date descending (newest first)
@@ -130,35 +160,56 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
         // Retrieve existing sessions to skip already imported sessions
         final existingSessions = await _database.getSleepSessions(limit: 60);
 
-        bool isAlreadyImported(DateTime entryDate) {
+        bool isAlreadyImported(String entryId, DateTime entryDate) {
+          final targetId = entryId.isNotEmpty ? 'sense_$entryId' : null;
           return existingSessions.any((s) =>
-              s.startTime.difference(entryDate).inMinutes.abs() < 15);
+              (targetId != null && s.id == targetId) ||
+              s.startTime.difference(entryDate).inMinutes.abs() < 10);
         }
 
-        final unSyncedEntries = entries.where((e) => !isAlreadyImported(e.date)).toList();
-        debugPrint('[SleepSync] Unsynced entries to import: ${unSyncedEntries.length}');
+        final unSyncedEntries =
+            entries.where((e) => !isAlreadyImported(e.entryId, e.date)).toList();
+        final skippedAlready = entries.length - unSyncedEntries.length;
+        debugPrint(
+          '[SleepSync] Unsynced entries to import: ${unSyncedEntries.length}, skippedAlready: $skippedAlready',
+        );
 
         if (unSyncedEntries.isEmpty) {
           onProgress?.call('手环内所有记录此前已同步完毕');
           await loadSessions();
           state = state.copyWith(isLoading: false);
-          // Select and return the latest existing session if available
           if (existingSessions.isNotEmpty) {
             await selectSession(existingSessions.first);
-            return existingSessions.first;
+            return OfflineSyncResult(
+              session: existingSessions.first,
+              entriesFound: entries.length,
+              syncedCount: 0,
+              skippedAlreadySynced: skippedAlready,
+            );
           }
-          return null;
+          return OfflineSyncResult(
+            entriesFound: entries.length,
+            skippedAlreadySynced: skippedAlready,
+          );
         }
 
         SleepSession? latestProcessedSession;
         int processedCount = 0;
+        int skippedTooShort = 0;
+        String? fetchError;
 
         for (int i = 0; i < unSyncedEntries.length; i++) {
           final entry = unSyncedEntries[i];
           onProgress?.call('正在下载睡眠数据 (${i + 1}/${unSyncedEntries.length})...');
 
           final exerciseData = await bleManager.fetchOfflineRecording(entry);
-          if (exerciseData == null || exerciseData.samples.isEmpty) {
+          if (exerciseData == null) {
+            fetchError ??= bleManager.lastSyncError;
+            debugPrint('[SleepSync] Fetch failed for exercise: ${entry.entryId}');
+            continue;
+          }
+          if (exerciseData.samples.isEmpty) {
+            skippedTooShort++;
             debugPrint('[SleepSync] Skipping empty exercise: ${entry.entryId}');
             continue;
           }
@@ -174,12 +225,16 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
 
             if (session != null) {
               processedCount++;
-              if (latestProcessedSession == null || session.startTime.isAfter(latestProcessedSession.startTime)) {
+              if (latestProcessedSession == null ||
+                  session.startTime.isAfter(latestProcessedSession.startTime)) {
                 latestProcessedSession = session;
               }
             }
           } else {
-            debugPrint('[SleepSync] Skipping short exercise (<30 samples): ${entry.entryId}');
+            skippedTooShort++;
+            debugPrint(
+              '[SleepSync] Skipping short exercise (${exerciseData.samples.length} samples < 30): ${entry.entryId}',
+            );
           }
         }
 
@@ -187,18 +242,33 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
 
         if (latestProcessedSession != null) {
           await selectSession(latestProcessedSession);
-        } else if (existingSessions.isNotEmpty) {
-          await selectSession(existingSessions.first);
         }
 
         state = state.copyWith(isLoading: false);
-        return latestProcessedSession ?? (existingSessions.isNotEmpty ? existingSessions.first : null);
+        return OfflineSyncResult(
+          session: latestProcessedSession,
+          entriesFound: entries.length,
+          syncedCount: processedCount,
+          skippedAlreadySynced: skippedAlready,
+          skippedTooShort: skippedTooShort,
+          errorMessage: latestProcessedSession == null ? (fetchError ?? bleManager.lastSyncError) : null,
+          diagnostics: latestProcessedSession == null ? bleManager.lastStorageDiagnostics : null,
+        );
       });
     } catch (e) {
       debugPrint('[SleepSync] Sync offline sleep exception: $e');
       state = state.copyWith(isLoading: false);
-      return null;
+      return OfflineSyncResult(
+        errorMessage: e.toString(),
+        diagnostics: bleManager.lastStorageDiagnostics,
+      );
     }
+  }
+
+  /// Convenience wrapper returning only the imported/selected [SleepSession].
+  Future<SleepSession?> syncOfflineSleep({Function(String status)? onProgress}) async {
+    final result = await syncOfflineSleepDetailed(onProgress: onProgress);
+    return result.session;
   }
 
   /// Generates a complete 7.5-hour mock offline sleep session for instant testing & hypnogram inspection

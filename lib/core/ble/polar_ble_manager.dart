@@ -79,6 +79,15 @@ class PolarBleManager {
   bool _isSyncingOffline = false;
   bool get isSyncingOffline => _isSyncingOffline;
 
+  final Set<PolarSdkFeature> _readyFeatures = {};
+  Set<PolarSdkFeature> get readyFeatures => Set.unmodifiable(_readyFeatures);
+
+  String? _lastSyncError;
+  String? get lastSyncError => _lastSyncError;
+
+  Map<String, dynamic>? _lastStorageDiagnostics;
+  Map<String, dynamic>? get lastStorageDiagnostics => _lastStorageDiagnostics;
+
   final List<PolarExerciseEntry> _mockStoredExercises = [];
   List<PolarExerciseEntry> get mockStoredExercises => List.unmodifiable(_mockStoredExercises);
 
@@ -186,6 +195,7 @@ class PolarBleManager {
     _deviceConnectedSub = _polar.deviceConnected.listen((info) {
       debugPrint('[BLE] Device connected: ${info.deviceId}');
       _connectedDeviceId = info.deviceId;
+      _readyFeatures.clear();
       _updateState(BleConnectionState.connected);
       _reconnectAttempts = 0;
 
@@ -200,7 +210,9 @@ class PolarBleManager {
 
       // Safety fallback: if feature readiness callback is delayed, start streams after GATT stabilizes
       Future.delayed(const Duration(milliseconds: 3000), () {
-        if (_connectedDeviceId == info.deviceId && _connectionState == BleConnectionState.connected) {
+        if (_connectedDeviceId == info.deviceId &&
+            _connectionState == BleConnectionState.connected &&
+            !_isSyncingOffline) {
           debugPrint('[BLE] Feature readiness timeout fallback -> starting sensor streams');
           _startSensorStreams(info.deviceId);
         }
@@ -213,6 +225,7 @@ class PolarBleManager {
       debugPrint('[BLE] Device disconnected: ${event.info.deviceId}');
       _updateState(BleConnectionState.disconnected);
       _connectedDeviceId = null;
+      _readyFeatures.clear();
       _batteryLevel = null;
       _isCharging = false;
       _currentHr = null;
@@ -252,9 +265,11 @@ class PolarBleManager {
 
     _featuresReadinessSub = _polar.sdkFeaturesReadiness.listen((event) {
       debugPrint('[BLE] SDK Features readiness: ${event.ready} for ${event.identifier}');
-      if (event.identifier == _connectedDeviceId &&
-          event.ready.contains(PolarSdkFeature.onlineStreaming)) {
-        _startSensorStreams(event.identifier);
+      if (event.identifier == _connectedDeviceId) {
+        _readyFeatures.addAll(event.ready);
+        if (event.ready.contains(PolarSdkFeature.onlineStreaming) && !_isSyncingOffline) {
+          _startSensorStreams(event.identifier);
+        }
       }
     }, onError: (err) {
       debugPrint('[BLE] sdkFeaturesReadiness stream error: $err');
@@ -262,9 +277,11 @@ class PolarBleManager {
 
     _featureReadySub = _polar.sdkFeatureReady.listen((event) {
       debugPrint('[BLE] SDK Feature ready: ${event.feature} on ${event.identifier}');
-      if (event.identifier == _connectedDeviceId &&
-          event.feature == PolarSdkFeature.onlineStreaming) {
-        _startSensorStreams(event.identifier);
+      if (event.identifier == _connectedDeviceId) {
+        _readyFeatures.add(event.feature);
+        if (event.feature == PolarSdkFeature.onlineStreaming && !_isSyncingOffline) {
+          _startSensorStreams(event.identifier);
+        }
       }
     }, onError: (err) {
       debugPrint('[BLE] sdkFeatureReady stream error: $err');
@@ -516,7 +533,7 @@ class PolarBleManager {
   }
 
   Future<void> _startSensorStreams(String deviceId) async {
-    if (_isStartingStreams || _connectedDeviceId != deviceId) return;
+    if (_isStartingStreams || _isSyncingOffline || _connectedDeviceId != deviceId) return;
     _isStartingStreams = true;
 
     try {
@@ -530,7 +547,7 @@ class PolarBleManager {
       _hrSub?.cancel();
       _hrSub = null;
 
-      if (_connectedDeviceId != deviceId) return;
+      if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
 
       // 1. Optical Heart Rate PPI Stream (Instantaneous optical HR + pulse intervals)
       // This is the primary optical measurement of Polar Verity Sense
@@ -560,7 +577,7 @@ class PolarBleManager {
 
       // Stagger GATT writes by 250ms so Android Bluetooth stack does not collide (prevents status 133 / GATT crash)
       await Future.delayed(const Duration(milliseconds: 250));
-      if (_connectedDeviceId != deviceId) return;
+      if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
 
       // 2. Accelerometer Stream (Native Polar 52Hz / 8G default - 100% compatible across all firmware without SDK mode)
       try {
@@ -584,7 +601,7 @@ class PolarBleManager {
 
       // Stagger GATT writes before starting standard HR stream
       await Future.delayed(const Duration(milliseconds: 250));
-      if (_connectedDeviceId != deviceId) return;
+      if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
 
       // 3. Heart Rate Stream (Standard Bluetooth LE Heart Rate Service 0x180D)
       try {
@@ -610,6 +627,7 @@ class PolarBleManager {
         _hrSub = null;
       }
 
+      if (_connectedDeviceId != deviceId || _isSyncingOffline) return;
       _lastSampleReceivedTime = DateTime.now();
       _updateState(BleConnectionState.streaming);
       _startStreamWatchdog(deviceId);
@@ -691,6 +709,21 @@ class PolarBleManager {
     _ppiSub = null;
     _hrSub?.cancel();
     _hrSub = null;
+  }
+
+  Future<void> _cancelStreamsAsync() async {
+    _streamWatchdogTimer?.cancel();
+    _streamWatchdogTimer = null;
+    final futures = <Future<void>>[];
+    if (_accSub != null) futures.add(_accSub!.cancel());
+    if (_ppiSub != null) futures.add(_ppiSub!.cancel());
+    if (_hrSub != null) futures.add(_hrSub!.cancel());
+    _accSub = null;
+    _ppiSub = null;
+    _hrSub = null;
+    if (futures.isNotEmpty) {
+      await Future.wait(futures).catchError((_) => <void>[]);
+    }
   }
 
   void _startMockStreaming() {
@@ -806,19 +839,44 @@ class PolarBleManager {
       return false;
     }
 
+    final deviceId = _connectedDeviceId!;
     try {
+      // Polar Verity Sense forbids running online PPI streaming and offline PPI recording concurrently.
+      // Pause online streams before initiating offline recording so PMD state does not collide.
+      if (_connectionState == BleConnectionState.streaming) {
+        await _cancelStreamsAsync();
+        _updateState(BleConnectionState.connected);
+        await Future.delayed(const Duration(milliseconds: 600));
+      }
+
       final exerciseId = const Uuid().v4();
-      await _polar
-          .startRecording(
-            _connectedDeviceId!,
-            exerciseId: exerciseId,
-            interval: interval,
-            sampleType: sampleType,
-          )
-          .timeout(const Duration(seconds: 6));
+      try {
+        await _polar
+            .startRecording(
+              deviceId,
+              exerciseId: exerciseId,
+              interval: interval,
+              sampleType: sampleType,
+            )
+            .timeout(const Duration(seconds: 8));
+      } catch (e) {
+        if (sampleType == SampleType.rr) {
+          debugPrint('[BLE] PPI offline recording failed ($e), falling back to HR offline recording...');
+          await _polar
+              .startRecording(
+                deviceId,
+                exerciseId: exerciseId,
+                interval: interval,
+                sampleType: SampleType.hr,
+              )
+              .timeout(const Duration(seconds: 8));
+        } else {
+          rethrow;
+        }
+      }
       _isOfflineRecording = true;
       _safeAdd(_offlineRecordingController, true);
-      debugPrint('[BLE] Standalone offline recording started on $_connectedDeviceId (id: $exerciseId)');
+      debugPrint('[BLE] Standalone offline recording started on $deviceId (id: $exerciseId)');
       return true;
     } catch (e) {
       debugPrint('[BLE] Failed to start offline recording: $e');
@@ -847,7 +905,7 @@ class PolarBleManager {
     }
 
     try {
-      await _polar.stopRecording(_connectedDeviceId!).timeout(const Duration(seconds: 6));
+      await _polar.stopRecording(_connectedDeviceId!).timeout(const Duration(seconds: 8));
       _isOfflineRecording = false;
       _safeAdd(_offlineRecordingController, false);
       debugPrint('[BLE] Standalone offline recording stopped on $_connectedDeviceId');
@@ -884,28 +942,40 @@ class PolarBleManager {
     final deviceId = _connectedDeviceId!;
     final wasStreaming = _connectionState == BleConnectionState.streaming;
     _isSyncingOffline = true;
+    _lastSyncError = null;
+    _lastStorageDiagnostics = null;
 
     try {
       debugPrint('[BLE PFTP] Pausing online streams for file transfer on $deviceId...');
-      _cancelStreams();
+      await _cancelStreamsAsync();
       _updateState(BleConnectionState.connected);
 
-      // 1. Allow 600ms for in-flight BLE notifications to drain and sensor to settle into GATT idle state
-      await Future.delayed(const Duration(milliseconds: 600));
+      // 1. Allow 800ms for PMD STOP commands and in-flight notifications to drain completely
+      await Future.delayed(const Duration(milliseconds: 800));
 
-      // 2. Check if the sensor has an ongoing recording and finalize it
+      // 2. If connected very recently, wait briefly (up to 3s) for PFTP feature readiness
+      if (!_readyFeatures.contains(PolarSdkFeature.fileTransfer)) {
+        for (int i = 0; i < 12; i++) {
+          if (_connectedDeviceId != deviceId || _readyFeatures.contains(PolarSdkFeature.fileTransfer)) {
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: 250));
+        }
+      }
+
+      // 3. Check if the sensor has an ongoing SDK offline recording and finalize it
       try {
         final recStatus = await checkOfflineRecordingStatus();
         if (recStatus != null && recStatus.ongoing) {
           debugPrint('[BLE PFTP] Active recording detected (${recStatus.entryId}). Stopping recording before sync...');
           await stopOfflineRecording();
-          await Future.delayed(const Duration(milliseconds: 800));
+          await Future.delayed(const Duration(milliseconds: 1000));
         }
       } catch (e) {
         debugPrint('[BLE PFTP] Non-fatal check/stop recording error: $e');
       }
 
-      // 3. Execute the caller's action
+      // 4. Execute the caller's action
       return await action();
     } finally {
       _isSyncingOffline = false;
@@ -932,6 +1002,7 @@ class PolarBleManager {
 
     if (_connectedDeviceId == null) {
       debugPrint('[BLE] Cannot list recordings: device not connected');
+      _lastSyncError = 'Device not connected';
       return [];
     }
 
@@ -947,22 +1018,53 @@ class PolarBleManager {
     if (deviceId == null) return [];
 
     try {
-      debugPrint('[BLE PFTP] Requesting exercise list from $deviceId...');
-      final entries = await _polar.listExercises(deviceId).timeout(const Duration(seconds: 20));
+      debugPrint('[BLE PFTP] Requesting exercise & offline list from $deviceId...');
+      final entries = await _polar.listExercises(deviceId).timeout(const Duration(seconds: 25));
       debugPrint('[BLE PFTP] Successfully found ${entries.length} offline recordings on $deviceId');
+      if (entries.isEmpty) {
+        try {
+          _lastStorageDiagnostics = await _polar.inspectDeviceStorage(deviceId).timeout(const Duration(seconds: 15));
+          debugPrint('[BLE PFTP] Empty list diagnostics: $_lastStorageDiagnostics');
+        } catch (diagErr) {
+          debugPrint('[BLE PFTP] Diagnostic inspect failed: $diagErr');
+        }
+      }
       return entries;
     } catch (e) {
       debugPrint('[BLE PFTP] Initial attempt to list exercises failed: $e, retrying after 1.5s...');
       await Future.delayed(const Duration(milliseconds: 1500));
       try {
-        final entries = await _polar.listExercises(deviceId).timeout(const Duration(seconds: 20));
+        final entries = await _polar.listExercises(deviceId).timeout(const Duration(seconds: 25));
         debugPrint('[BLE PFTP] Retry found ${entries.length} offline recordings on $deviceId');
         return entries;
       } catch (e2) {
         debugPrint('[BLE PFTP] Error listing offline recordings after retry: $e2');
+        _lastSyncError = e2.toString();
+        try {
+          _lastStorageDiagnostics = await _polar.inspectDeviceStorage(deviceId).timeout(const Duration(seconds: 15));
+        } catch (_) {}
         return [];
       }
     }
+  }
+
+  /// Inspect internal flash storage and readiness flags on the connected device
+  Future<Map<String, dynamic>> inspectDeviceStorage() async {
+    if (_isMockMode) {
+      return {
+        'mockMode': true,
+        'u0Paths': ['/U/0/mock/E/000000/00/SAMPLES.BPB'],
+        'offlineEntries': [],
+      };
+    }
+    if (_connectedDeviceId == null) {
+      return {'error': 'Device not connected'};
+    }
+    return await withFileTransferSession(() async {
+      final diag = await _polar.inspectDeviceStorage(_connectedDeviceId!).timeout(const Duration(seconds: 20));
+      _lastStorageDiagnostics = diag;
+      return diag;
+    });
   }
 
   /// Download recorded exercise samples from sensor memory
@@ -1002,6 +1104,7 @@ class PolarBleManager {
         return data;
       } catch (e2) {
         debugPrint('[BLE PFTP] Error fetching exercise data after retry: $e2');
+        _lastSyncError = e2.toString();
         return null;
       }
     }

@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import '../../core/ble/polar_ble_manager.dart';
 import '../../core/database/models/sleep_record.dart';
 import '../../core/localization/app_strings.dart';
 import '../../features/health_sync/health_export_service.dart';
-import '../../features/sedentary/sedentary_notifier.dart';
 import '../../features/sleep/recovery_score_calculator.dart';
 import '../../features/sleep/sleep_session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/hypnogram_chart.dart';
 import '../widgets/metric_card.dart';
+import '../widgets/offline_sync_helper.dart';
 import '../widgets/recovery_gauge.dart';
 
 class SleepScreen extends ConsumerStatefulWidget {
@@ -415,161 +414,17 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
   }
 
   Future<void> _handleOfflineSync(AppStrings strings) async {
-    final bleManager = ref.read(polarBleManagerProvider);
-    if (bleManager.connectionState == BleConnectionState.disconnected && !bleManager.isMockMode) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(strings.pleaseConnectSenseFirst),
-          backgroundColor: AppTheme.polarRed,
-        ),
-      );
-      return;
-    }
-
     setState(() => _isOfflineSyncing = true);
-
-    String progressMessage = strings.preparingSyncChannel;
-    StateSetter? modalSetState;
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: AppTheme.darkCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            modalSetState = setModalState;
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: AppTheme.polarCyan,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    strings.syncOfflineSleep,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    progressMessage,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13, color: Colors.white70),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    final session = await ref.read(sleepHistoryProvider.notifier).syncOfflineSleep(
-      onProgress: (status) {
-        progressMessage = status;
-        modalSetState?.call(() {});
-      },
-    );
-
-    if (mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
-    }
-
-    setState(() => _isOfflineSyncing = false);
-
-    if (mounted) {
-      if (session != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${strings.offlineSyncSuccess} (${session.durationFormatted}, ${strings.lastNightRecovery}: ${session.recoveryScore})',
-            ),
-            backgroundColor: AppTheme.recoveryGood,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      } else {
-        _showOfflineGuideDialog(strings);
+    try {
+      await runOfflineSyncWithModal(
+        context: context,
+        ref: ref,
+        strings: strings,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isOfflineSyncing = false);
       }
     }
-  }
-
-  void _showOfflineGuideDialog(AppStrings strings) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.darkCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            const Icon(Icons.info_outline, color: AppTheme.polarCyan, size: 22),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                strings.offlineGuideDialogTitle,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                strings.noExercisesFound,
-                style: const TextStyle(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 14),
-              _buildGuideStep(strings.offlineGuideStep1),
-              const SizedBox(height: 8),
-              _buildGuideStep(strings.offlineGuideStep2),
-              const SizedBox(height: 8),
-              _buildGuideStep(strings.offlineGuideStep3),
-              const SizedBox(height: 8),
-              _buildGuideStep(strings.offlineGuideStep4),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('OK', style: TextStyle(color: AppTheme.polarCyan)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGuideStep(String step) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppTheme.darkBackground,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.darkBorder),
-      ),
-      child: Text(
-        step,
-        style: const TextStyle(fontSize: 12, color: Colors.white70, height: 1.4),
-      ),
-    );
   }
 }
