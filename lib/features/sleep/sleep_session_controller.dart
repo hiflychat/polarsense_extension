@@ -149,7 +149,7 @@ class SleepHistoryController extends StateNotifier<SleepHistoryState> {
     AppStrings? strings,
   }) async {
     final bleManager = _ref.read(polarBleManagerProvider);
-    final s = strings ?? _ref.read(stringsProvider);
+    final AppStrings s = strings ?? _ref.read<AppStrings>(stringsProvider);
 
     try {
       state = state.copyWith(isLoading: true);
