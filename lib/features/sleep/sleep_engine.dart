@@ -237,12 +237,11 @@ class SleepEngine {
         : (0.5 * _baselineRestingHr + 0.5 * restingHr);
     double calibratedRmssd = _baseline14DayRmssd;
     if (_allSessionRmssd.isNotEmpty) {
-      final sortedRmssd = List<double>.from(_allSessionRmssd)..sort();
-      final medianRmssd = sortedRmssd[sortedRmssd.length ~/ 2];
+      // Use arithmetic mean instead of discrete median so bimodal N3/REM RMSSD splits don't snap to the upper mode.
       if (_baseline14DayRmssd == 42.0) {
-        calibratedRmssd = medianRmssd.clamp(20.0, 90.0);
+        calibratedRmssd = avgRmssd.clamp(20.0, 90.0);
       } else if (_allSessionRmssd.length >= 60) {
-        calibratedRmssd = (0.5 * _baseline14DayRmssd + 0.5 * medianRmssd).clamp(20.0, 90.0);
+        calibratedRmssd = (0.5 * _baseline14DayRmssd + 0.5 * avgRmssd).clamp(20.0, 90.0);
       }
     }
 
@@ -489,16 +488,15 @@ class SleepEngine {
         ? sessionRestingHr
         : (0.5 * priorBaselineRestingHr + 0.5 * sessionRestingHr);
 
-    // Self-calibrate PPI RMSSD threshold to session median if no prior PPI baseline exists
+    // Self-calibrate PPI RMSSD threshold to session mean if no prior PPI baseline exists
     // or blend evenly on full sessions so adults with 28-40ms normal baseline aren't locked out of Deep.
     double effectiveBaselineRmssd = priorBaseline14DayRmssd;
     if (isRrIntervals && allRmssd.isNotEmpty) {
-      final sortedRmssd = List<double>.from(allRmssd)..sort();
-      final sessionMedianRmssd = sortedRmssd[sortedRmssd.length ~/ 2];
+      final sessionMeanRmssd = allRmssd.reduce((a, b) => a + b) / allRmssd.length;
       if (priorBaseline14DayRmssd == 42.0) {
-        effectiveBaselineRmssd = sessionMedianRmssd.clamp(20.0, 90.0);
+        effectiveBaselineRmssd = sessionMeanRmssd.clamp(20.0, 90.0);
       } else if (allRmssd.length >= 60) {
-        effectiveBaselineRmssd = (0.5 * priorBaseline14DayRmssd + 0.5 * sessionMedianRmssd)
+        effectiveBaselineRmssd = (0.5 * priorBaseline14DayRmssd + 0.5 * sessionMeanRmssd)
             .clamp(20.0, 90.0);
       }
     }
