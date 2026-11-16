@@ -5,6 +5,7 @@ import '../../core/database/models/sleep_record.dart';
 import '../../core/localization/app_strings.dart';
 import '../../features/health_sync/health_export_service.dart';
 import '../../features/sleep/recovery_score_calculator.dart';
+import '../../features/sleep/sleep_diagnostics.dart';
 import '../../features/sleep/sleep_session_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/hypnogram_chart.dart';
@@ -116,7 +117,12 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
 
                         const SizedBox(height: 16),
 
-                        // 6. Biometric Terminology Legend (图注)
+                        // 6. Overnight Depth & Cause Diagnostics
+                        _buildDiagnosticInsightsCard(selectedSession, epochs, strings),
+
+                        const SizedBox(height: 16),
+
+                        // 7. Biometric Terminology Legend (图注)
                         _buildGlossaryCard(strings),
                       ],
                     ],
@@ -509,6 +515,81 @@ class _SleepScreenState extends ConsumerState<SleepScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildDiagnosticInsightsCard(
+    SleepSession session,
+    List<SleepEpoch> epochs,
+    AppStrings strings,
+  ) {
+    final diag = SleepDiagnosticsAnalyzer.analyze(session, epochs);
+    final bpmUnit = strings.bpm;
+    final minUnit = strings.min;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.analytics_outlined, color: AppTheme.remColor, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    strings.diagnosticInsightsTitle,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildScoreFactorRow(
+              strings.diagHrRangeLabel,
+              '${diag.p10Hr.round()} / ${diag.medianHr.round()} / ${diag.maxHr.round()} $bpmUnit',
+            ),
+            const SizedBox(height: 6),
+            _buildScoreFactorRow(
+              strings.diagHalfNightLabel,
+              '${diag.firstHalfMeanHr.toStringAsFixed(1)} vs ${diag.secondHalfMeanHr.toStringAsFixed(1)} $bpmUnit',
+            ),
+            const SizedBox(height: 6),
+            _buildScoreFactorRow(
+              strings.diagLongestDeepLabel,
+              '${diag.longestDeepBoutMinutes} $minUnit',
+            ),
+            if (diag.hasMotionTelemetry) ...[
+              const SizedBox(height: 6),
+              _buildScoreFactorRow(
+                strings.diagMotionLabel,
+                '${diag.subtleMotionSharePct.round()}% / ${diag.highMotionSharePct.round()}%',
+              ),
+            ],
+            if (diag.insights.isNotEmpty) ...[
+              const Divider(color: AppTheme.darkBorder, height: 20),
+              ...diag.insights.map(
+                (code) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    strings.insightText(code),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.white70,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

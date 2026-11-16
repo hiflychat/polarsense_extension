@@ -14,6 +14,12 @@ enum PostureState {
   activeWalking, // Locomotion / walking (>= 0.150g -> breaks sedentary!)
 }
 
+enum SedentaryPauseReason {
+  none,
+  sleepTracking,       // Active live sleep monitoring or sensor standalone offline recording
+  nocturnalQuietHours, // Overnight quiet hours (23:00 - 07:00) auto-suppression
+}
+
 class SedentaryStatus {
   final int sedentarySeconds;
   final int activeWalkingSeconds;
@@ -23,6 +29,8 @@ class SedentaryStatus {
   final bool hasTriggeredAlert;
   final bool isDeviceConnected;
   final int walkingPauseGraceCounter;
+  final SedentaryPauseReason pauseReason;
+  final bool nightQuietEnabled;
 
   SedentaryStatus({
     required this.sedentarySeconds,
@@ -33,7 +41,11 @@ class SedentaryStatus {
     required this.hasTriggeredAlert,
     this.isDeviceConnected = true,
     this.walkingPauseGraceCounter = 0,
+    this.pauseReason = SedentaryPauseReason.none,
+    this.nightQuietEnabled = true,
   });
+
+  bool get isPausedForSleep => pauseReason != SedentaryPauseReason.none;
 
   bool get isActiveState =>
       state == PostureState.activeWalking || state == PostureState.activeArmMove;
@@ -68,6 +80,13 @@ class SedentaryEngine {
 
   static const int activeResetRequirementSec = 60;   // 60 seconds of continuous active movement breaks sedentary spell
   static const int walkingPauseGraceSec = 15;        // 15 seconds pause tolerance during active breaks
+  static const int quietStartHour = 23;              // 23:00 nocturnal sleep quiet window start
+  static const int quietEndHour = 7;                 // 07:00 nocturnal sleep quiet window end
+
+  /// Returns true when [time] falls in the overnight quiet sleep window (23:00 - 07:00).
+  static bool isInNightQuietWindow(DateTime time) {
+    return time.hour >= quietStartHour || time.hour < quietEndHour;
+  }
 
   int _alertThresholdMinutes = 45;
   int get alertThresholdMinutes => _alertThresholdMinutes;
@@ -79,22 +98,69 @@ class SedentaryEngine {
     }
   }
 
-  SedentaryEngine() {
-    _loadPersistedThreshold();
+  bool _nightQuietEnabled = true;
+  bool get nightQuietEnabled => _nightQuietEnabled;
+  set nightQuietEnabled(bool value) {
+    if (_nightQuietEnabled != value) {
+      _nightQuietEnabled = value;
+      _database.setSetting('sedentary_night_quiet_enabled', value ? '1' : '0');
+      if (effectivePauseReason() != SedentaryPauseReason.none) {
+        _resetCountersOnSleepPause();
+      }
+      _emitStatus();
+    }
   }
 
-  Future<void> _loadPersistedThreshold() async {
+  bool _isSleepTrackingPaused = false;
+  bool get isSleepTrackingPaused => _isSleepTrackingPaused;
+  set isSleepTrackingPaused(bool value) {
+    if (_isSleepTrackingPaused != value) {
+      _isSleepTrackingPaused = value;
+      if (value) {
+        _resetCountersOnSleepPause();
+      } else {
+        _sedentaryPeriodStart = DateTime.now();
+      }
+      _emitStatus();
+    }
+  }
+
+  SedentaryPauseReason effectivePauseReason([DateTime? now]) {
+    if (_isSleepTrackingPaused) return SedentaryPauseReason.sleepTracking;
+    if (_nightQuietEnabled && isInNightQuietWindow(now ?? DateTime.now())) {
+      return SedentaryPauseReason.nocturnalQuietHours;
+    }
+    return SedentaryPauseReason.none;
+  }
+
+  void _resetCountersOnSleepPause() {
+    _sedentarySeconds = 0;
+    _activeWalkingSeconds = 0;
+    _walkingPauseGraceCounter = 0;
+    _hasTriggeredAlert = false;
+    _sedentaryPeriodStart = null;
+  }
+
+  SedentaryEngine() {
+    _loadPersistedSettings();
+  }
+
+  Future<void> _loadPersistedSettings() async {
     try {
       final saved = await _database.getSetting('sedentary_threshold_minutes');
       if (saved != null) {
         final parsed = int.tryParse(saved);
         if (parsed != null && parsed >= 15 && parsed <= 180) {
           _alertThresholdMinutes = parsed;
-          _emitStatus();
         }
       }
+      final quietSaved = await _database.getSetting('sedentary_night_quiet_enabled');
+      if (quietSaved != null) {
+        _nightQuietEnabled = quietSaved != '0' && quietSaved != 'false';
+      }
+      _emitStatus();
     } catch (e) {
-      debugPrint('[SedentaryEngine] Failed to load threshold: $e');
+      debugPrint('[SedentaryEngine] Failed to load settings: $e');
     }
   }
 
@@ -136,6 +202,8 @@ class SedentaryEngine {
     hasTriggeredAlert: _hasTriggeredAlert,
     isDeviceConnected: _isDeviceConnected,
     walkingPauseGraceCounter: _walkingPauseGraceCounter,
+    pauseReason: effectivePauseReason(),
+    nightQuietEnabled: _nightQuietEnabled,
   );
 
   void start(Stream<PolarAccData> accStream) {
@@ -156,6 +224,15 @@ class SedentaryEngine {
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       try {
+        // Suppress all sedentary accumulation and alerts while sleeping or during nocturnal quiet hours
+        if (effectivePauseReason() != SedentaryPauseReason.none) {
+          if (_sedentarySeconds != 0 || _hasTriggeredAlert || _activeWalkingSeconds != 0) {
+            _resetCountersOnSleepPause();
+          }
+          _emitStatus();
+          return;
+        }
+
         if (_isDeviceConnected) {
           final isStationaryOrTyping = _currentState == PostureState.sedentary ||
               _currentState == PostureState.typingDesk;

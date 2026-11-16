@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polarsense_extension/core/database/models/sleep_record.dart';
+import 'package:polarsense_extension/features/sleep/sleep_diagnostics.dart';
 import 'package:polarsense_extension/features/sleep/sleep_staging_model.dart';
 import 'package:polarsense_extension/features/sleep/recovery_score_calculator.dart';
 
@@ -189,6 +190,71 @@ void main() {
         ),
         SleepStage.light,
       );
+    });
+
+    test('Preserves Deep Sleep under real-world breathing noise (0.015g) and RSA swings (6 bpm)', () {
+      // PPI/ACC mode with 0.016g resting arm/breathing motion must classify Deep (not Light)
+      expect(
+        SleepStagingModel.classifyEpoch(
+          epochMovementIndex: 0.016,
+          epochMeanHr: 55.0,
+          epochRmssd: 46.0, // 1.15x of 40.0 baseline
+          baselineRestingHr: 58.0,
+          baselineRmssd: 40.0,
+        ),
+        SleepStage.deep,
+      );
+
+      // HR-only mode with normal 6 bpm slow-wave breathing RSA oscillation must still classify Deep
+      expect(
+        SleepStagingModel.classifyHrOnlyEpoch(
+          epochMeanHr: 56.0,
+          epochHrStd: 1.4,
+          epochHrRange: 6.0,
+          baselineRestingHr: 54.0,
+          medianHrStd: 1.5,
+        ),
+        SleepStage.deep,
+      );
+    });
+  });
+
+  group('SleepDiagnosticsAnalyzer Tests', () {
+    test('Identifies elevated 1st-half HR and subtle motion attribution when Deep is low', () {
+      final t0 = DateTime(2026, 11, 15, 23, 30);
+      final epochs = List.generate(120, (i) {
+        final firstHalf = i < 60;
+        return SleepEpoch(
+          sessionId: 'diag_test',
+          timestamp: t0.add(Duration(seconds: i * 30)),
+          stage: i < 4 ? SleepStage.deep : SleepStage.light,
+          meanHr: firstHalf ? 64.0 : 59.0,
+          rmssd: 38.0,
+          movementIndex: 0.015, // Falls inside 0.01-0.025g subtle motion band
+        );
+      });
+
+      final session = SleepSession(
+        id: 'diag_test',
+        startTime: t0,
+        endTime: t0.add(const Duration(minutes: 60)),
+        durationMinutes: 60,
+        wakeMinutes: 0,
+        remMinutes: 0,
+        lightMinutes: 58,
+        deepMinutes: 2,
+        restingHr: 58.0,
+        avgRmssd: 38.0,
+        recoveryScore: 42,
+      );
+
+      final report = SleepDiagnosticsAnalyzer.analyze(session, epochs);
+      expect(report.longestDeepBoutMinutes, 2);
+      expect(report.subtleMotionSharePct, closeTo(100.0, 0.1));
+      expect(report.firstHalfMeanHr, closeTo(64.0, 0.1));
+      expect(report.secondHalfMeanHr, closeTo(59.0, 0.1));
+      expect(report.insights, contains(SleepInsightCode.lowDeepPossibleStrictFilter));
+      expect(report.insights, contains(SleepInsightCode.elevatedFirstHalfHr));
     });
   });
 }

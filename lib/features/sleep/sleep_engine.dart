@@ -215,8 +215,52 @@ class SleepEngine {
       _finalizeEpoch(endTime);
     }
 
+    // Resting HR: 10th percentile or minimum sustained HR during the night
+    double restingHr = _baselineRestingHr;
+    if (_allSessionHr.isNotEmpty) {
+      _allSessionHr.sort();
+      // Use 10th percentile as clinical standard for overnight resting HR
+      final p10Index = (_allSessionHr.length * 0.10).floor().clamp(0, _allSessionHr.length - 1);
+      restingHr = _allSessionHr[p10Index];
+    }
+
+    // Overnight Average RMSSD
+    final avgRmssd = _allSessionRmssd.isNotEmpty
+        ? _allSessionRmssd.reduce((a, b) => a + b) / _allSessionRmssd.length
+        : 0.0;
+    final hasHrvData = avgRmssd > 0;
+
+    // Re-score recorded epochs once the full-night resting nadir and RMSSD profile are known,
+    // preventing night-1 hardcoded 60 bpm / 42 ms defaults from distorting sleep stages.
+    final calibratedHr = (_sessionEpochs.length >= 120 || _baselineRestingHr == 60.0)
+        ? restingHr
+        : (0.5 * _baselineRestingHr + 0.5 * restingHr);
+    double calibratedRmssd = _baseline14DayRmssd;
+    if (_allSessionRmssd.isNotEmpty) {
+      final sortedRmssd = List<double>.from(_allSessionRmssd)..sort();
+      final medianRmssd = sortedRmssd[sortedRmssd.length ~/ 2];
+      if (_baseline14DayRmssd == 42.0) {
+        calibratedRmssd = medianRmssd.clamp(20.0, 90.0);
+      } else if (_allSessionRmssd.length >= 60) {
+        calibratedRmssd = (0.5 * _baseline14DayRmssd + 0.5 * medianRmssd).clamp(20.0, 90.0);
+      }
+    }
+
+    final recalibratedEpochs = _sessionEpochs.map((ep) {
+      final stage = (ep.rmssd <= 0 && ep.movementIndex > 0.08)
+          ? SleepStage.wake
+          : SleepStagingModel.classifyEpoch(
+              epochMovementIndex: ep.movementIndex,
+              epochMeanHr: ep.meanHr,
+              epochRmssd: ep.rmssd > 0 ? ep.rmssd : calibratedRmssd * 0.8,
+              baselineRestingHr: calibratedHr,
+              baselineRmssd: calibratedRmssd,
+            );
+      return ep.copyWith(stage: stage);
+    }).toList();
+
     // Apply temporal continuity smoothing across whole session
-    final smoothedEpochs = SleepStagingModel.smoothEpochs(_sessionEpochs);
+    final smoothedEpochs = SleepStagingModel.smoothEpochs(recalibratedEpochs);
 
     final durationMinutes = endTime.difference(_sessionStartTime!).inMinutes;
 
@@ -247,21 +291,6 @@ class SleepEngine {
     final remMinutes = (remCount * 0.5).round();
     final lightMinutes = (lightCount * 0.5).round();
     final deepMinutes = (deepCount * 0.5).round();
-
-    // Resting HR: 10th percentile or minimum sustained HR during the night
-    double restingHr = _baselineRestingHr;
-    if (_allSessionHr.isNotEmpty) {
-      _allSessionHr.sort();
-      // Use 10th percentile as clinical standard for overnight resting HR
-      final p10Index = (_allSessionHr.length * 0.10).floor().clamp(0, _allSessionHr.length - 1);
-      restingHr = _allSessionHr[p10Index];
-    }
-
-    // Overnight Average RMSSD
-    final avgRmssd = _allSessionRmssd.isNotEmpty
-        ? _allSessionRmssd.reduce((a, b) => a + b) / _allSessionRmssd.length
-        : 0.0;
-    final hasHrvData = avgRmssd > 0;
     final actualSleepMinutes = remMinutes + lightMinutes + deepMinutes;
 
     // Recovery Score Calculation (evaluated against actual asleep minutes rather than awake time-in-bed)
@@ -450,15 +479,29 @@ class SleepEngine {
       return null;
     }
 
-    // Compute 10th-percentile resting HR for the session before staging epochs
-    // so individuals with naturally lower (e.g., 48 bpm) or higher (e.g., 72 bpm) resting HR
-    // are staged accurately even on their first recorded night.
+    // Compute 10th-percentile resting HR for the session before staging epochs.
+    // For sessions >= 60 minutes (120 epochs), anchor staging directly to tonight's nocturnal nadir
+    // so day-to-day RHR shifts (+5-8 bpm) never squeeze Deep sleep into <10%.
     final sortedHrs = List<double>.from(allHr)..sort();
     final p10Idx = (sortedHrs.length * 0.10).floor().clamp(0, sortedHrs.length - 1);
     final sessionRestingHr = sortedHrs[p10Idx];
-    final effectiveStagingBaselineHr = (priorBaselineRestingHr == 60.0)
+    final effectiveStagingBaselineHr = (rawFeatures.length >= 120 || priorBaselineRestingHr == 60.0)
         ? sessionRestingHr
         : (0.5 * priorBaselineRestingHr + 0.5 * sessionRestingHr);
+
+    // Self-calibrate PPI RMSSD threshold to session median if no prior PPI baseline exists
+    // or blend evenly on full sessions so adults with 28-40ms normal baseline aren't locked out of Deep.
+    double effectiveBaselineRmssd = priorBaseline14DayRmssd;
+    if (isRrIntervals && allRmssd.isNotEmpty) {
+      final sortedRmssd = List<double>.from(allRmssd)..sort();
+      final sessionMedianRmssd = sortedRmssd[sortedRmssd.length ~/ 2];
+      if (priorBaseline14DayRmssd == 42.0) {
+        effectiveBaselineRmssd = sessionMedianRmssd.clamp(20.0, 90.0);
+      } else if (allRmssd.length >= 60) {
+        effectiveBaselineRmssd = (0.5 * priorBaseline14DayRmssd + 0.5 * sessionMedianRmssd)
+            .clamp(20.0, 90.0);
+      }
+    }
 
     final sortedStds = List<double>.from(allHrStds)..sort();
     final medianHrStd = sortedStds[sortedStds.length ~/ 2];
@@ -470,9 +513,9 @@ class SleepEngine {
         stage = SleepStagingModel.classifyEpoch(
           epochMovementIndex: f.movementIndex,
           epochMeanHr: f.meanHr,
-          epochRmssd: f.rmssd > 0 ? f.rmssd : priorBaseline14DayRmssd * 0.8,
+          epochRmssd: f.rmssd > 0 ? f.rmssd : effectiveBaselineRmssd * 0.8,
           baselineRestingHr: effectiveStagingBaselineHr,
-          baselineRmssd: priorBaseline14DayRmssd,
+          baselineRmssd: effectiveBaselineRmssd,
         );
       } else {
         stage = SleepStagingModel.classifyHrOnlyEpoch(

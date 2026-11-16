@@ -127,5 +127,37 @@ void main() {
       final optFallback = PolarBleManager.resolveOptimalAccSettings(null);
       expect(optFallback.settings.containsKey(PolarSettingType.sampleRate), isTrue);
     });
+
+    test('Nocturnal quiet window and sleep pause flags suppress sedentary status', () {
+      // 23:00 - 06:59 is inside quiet window; 07:00 - 22:59 is active daytime window
+      expect(SedentaryEngine.isInNightQuietWindow(DateTime(2026, 11, 16, 23, 0)), isTrue);
+      expect(SedentaryEngine.isInNightQuietWindow(DateTime(2026, 11, 16, 2, 30)), isTrue);
+      expect(SedentaryEngine.isInNightQuietWindow(DateTime(2026, 11, 16, 6, 59)), isTrue);
+      expect(SedentaryEngine.isInNightQuietWindow(DateTime(2026, 11, 16, 7, 0)), isFalse);
+      expect(SedentaryEngine.isInNightQuietWindow(DateTime(2026, 11, 16, 14, 0)), isFalse);
+      expect(SedentaryEngine.isInNightQuietWindow(DateTime(2026, 11, 16, 22, 59)), isFalse);
+
+      final pausedSleep = SedentaryStatus(
+        sedentarySeconds: 0,
+        activeWalkingSeconds: 0,
+        currentVmu: 0.01,
+        state: PostureState.sedentary,
+        alertThresholdMinutes: 45,
+        hasTriggeredAlert: false,
+        pauseReason: SedentaryPauseReason.sleepTracking,
+      );
+      expect(pausedSleep.isPausedForSleep, isTrue);
+
+      final daytimeActive = SedentaryStatus(
+        sedentarySeconds: 600,
+        activeWalkingSeconds: 0,
+        currentVmu: 0.01,
+        state: PostureState.sedentary,
+        alertThresholdMinutes: 45,
+        hasTriggeredAlert: false,
+        pauseReason: SedentaryPauseReason.none,
+      );
+      expect(daytimeActive.isPausedForSleep, isFalse);
+    });
   });
 }

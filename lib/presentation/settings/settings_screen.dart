@@ -34,6 +34,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final alertThresholdMinutes = ref.watch(
       sedentaryStatusProvider.select((s) => s.alertThresholdMinutes),
     );
+    final nightQuietEnabled = ref.watch(
+      sedentaryStatusProvider.select((s) => s.nightQuietEnabled),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -159,6 +162,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ],
                   ),
+                  const Divider(color: AppTheme.darkBorder, height: 20),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: const Icon(Icons.bedtime_outlined, color: AppTheme.remColor, size: 20),
+                    title: Text(
+                      strings.nightQuietModeTitle,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      strings.nightQuietModeDesc,
+                      style: const TextStyle(fontSize: 11, color: Colors.white54),
+                    ),
+                    value: nightQuietEnabled,
+                    activeColor: AppTheme.polarCyan,
+                    onChanged: (val) {
+                      ref.read(sedentaryStatusProvider.notifier).setNightQuietEnabled(val);
+                    },
+                  ),
                 ],
               ),
             ),
@@ -255,7 +276,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
                   Text(strings.aboutAppName, style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text('${strings.version} 1.0.18 • Polar BLE SDK 7.12.0', style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                  Text('${strings.version} 1.0.19 • Polar BLE SDK 7.12.0', style: const TextStyle(fontSize: 12, color: Colors.white54)),
                   const SizedBox(height: 8),
                   Text(
                     strings.hardwareSimulatorDesc,

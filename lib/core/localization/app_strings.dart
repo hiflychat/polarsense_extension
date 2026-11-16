@@ -3,6 +3,7 @@ import '../background/background_service.dart';
 import '../database/health_database.dart';
 import '../database/models/sleep_record.dart';
 import '../notifications/notification_service.dart';
+import '../../features/sleep/sleep_diagnostics.dart';
 
 enum AppLanguage {
   zh, // 简体中文
@@ -68,6 +69,18 @@ class AppStrings {
   String get vmuSedentaryLegend => isZh
       ? '图注：姿态动量 VMU 阈值 <0.035g 判定静坐，≥0.070g (主动活动/走动) 满 60 秒自动重置'
       : 'Legend: VMU < 0.035g = Stationary · ≥ 0.070g (active arms/walking) for 60s resets timer';
+  String get sedentaryPausedSleepChip => isZh ? '睡眠中暂停' : 'Sleep Paused';
+  String get sedentaryPausedNightChip => isZh ? '夜间静默 (23–07点)' : 'Night Quiet (23–07)';
+  String get sedentaryPausedSleepDesc => isZh
+      ? '当前正在进行睡眠监测/独立录制，久坐计时与提醒已自动暂停，请安心休息。'
+      : 'Sleep monitoring is active; sedentary tracking and alerts are paused.';
+  String get sedentaryPausedNightDesc => isZh
+      ? '已进入夜间睡眠静默时段（23:00–07:00），久坐检测已自动暂停，避免夜间打扰（可在设置关闭）。'
+      : 'Night quiet window (23:00–07:00) active; sedentary alerts suppressed (toggleable in Settings).';
+  String get nightQuietModeTitle => isZh ? '夜间自动暂停久坐监测 (23:00–07:00)' : 'Auto-Pause Sedentary at Night (23:00–07:00)';
+  String get nightQuietModeDesc => isZh
+      ? '开启后每晚 23:00 至次日 07:00 及睡眠监测期间自动静默久坐提醒；夜班人群可关闭。'
+      : 'Automatically suppresses sedentary counting & alerts from 23:00 to 07:00 and during sleep sessions.';
 
   // Sensor Screen
   String get sensorTitle => 'Polar Verity Sense';
@@ -208,6 +221,40 @@ class AppStrings {
       : 'Note: Standalone Green-LED mode records 1Hz HR (BPM) without raw PPI or ACC streams. Sleep stages are estimated from nocturnal HR nadir & short-term variability, and Recovery Score uses 50% Duration + 50% Deep/REM weighting.';
 
   String get metricGlossaryTitle => isZh ? '名词与缩写图注' : 'Terminology Legend';
+  String get diagnosticInsightsTitle => isZh ? '深度睡眠与整夜生理诊断分析' : 'Overnight Sleep Depth Diagnostics';
+  String get diagHrRangeLabel => isZh ? '心率分布 (P10 / 中位 / 峰值)' : 'HR Profile (P10 / Med / Max)';
+  String get diagHalfNightLabel => isZh ? '前半夜 vs 后半夜均值' : '1st Half vs 2nd Half HR';
+  String get diagLongestDeepLabel => isZh ? '最长连续深睡段' : 'Longest Deep Bout';
+  String get diagMotionLabel => isZh ? '微动与活跃体动占比' : 'Subtle / Active Motion Share';
+
+  String insightText(SleepInsightCode code) {
+    switch (code) {
+      case SleepInsightCode.healthyRestorative:
+        return isZh
+            ? '• 睡眠结构均衡：深睡与 REM 占比理想且效率良好，体能与自主神经得到充分修复。'
+            : '• Balanced restorative sleep: healthy Deep/REM proportions and strong sleep efficiency.';
+      case SleepInsightCode.lowDeepPossibleStrictFilter:
+        return isZh
+            ? '• 偏低深睡归因提示：当前记录包含大量轻度微动 (0.01–0.025g) 或处于旧版较严的呼吸心率波动阈值下。v1.0.19 已校准上臂呼吸微噪容限与心率谷值基准；若传感器内仍存有原文件，可在右上角清除本地记录后重新同步重算。'
+            : '• Low deep sleep alert: significant subtle arm motion (0.01–0.025g) or prior strict RSA bounds likely filtered deep bouts. Delete local record & re-sync to reprocess with v1.0.19 calibrated thresholds.';
+      case SleepInsightCode.elevatedFirstHalfHr:
+        return isZh
+            ? '• 前半夜心率偏高：入睡前半段心率明显高于后半段，常见于睡前较晚进食、咖啡因/饮酒、晚间剧烈运动或压力未卸载，抑制了黄金前半夜深睡眠进入。'
+            : '• Elevated 1st-half HR: early-night HR stayed higher than late-night, often due to late meals, caffeine, alcohol, or evening stress delaying slow-wave entry.';
+      case SleepInsightCode.narrowNocturnalDip:
+        return isZh
+            ? '• 夜间心率下潜幅度较小（中位心率与 P10 谷值差 < 3 次/分）：交感神经整夜偏紧张，整体深度恢复余量受限。'
+            : '• Shallow nocturnal HR dip (< 3 BPM between median and P10): sympathetic tone remained relatively elevated overnight.';
+      case SleepInsightCode.fragmentedWakeOrMotion:
+        return isZh
+            ? '• 睡眠存在翻身或微觉醒片段：较高体动占比或偏低睡眠效率打断了连续慢波周期，建议检查睡眠环境与传感器佩戴松紧度（需稳固贴肤）。'
+            : '• Fragmented sleep / motion spikes: restless movement or low sleep efficiency interrupted slow-wave cycles. Ensure snug skin contact.';
+      case SleepInsightCode.hrOnlyCalibrationNote:
+        return isZh
+            ? '• 仅心率离线模式说明：该夜由绿灯离线文件（1Hz BPM）估算，深度与 REM 占比会随当夜静息心率曲线变化；需最高分期精度建议开启 App「实时蓝牙在线」。'
+            : '• HR-only offline mode: stages estimated from 1Hz BPM nadir & volatility; use Live BLE mode for highest ACC+PPI precision.';
+    }
+  }
   List<({String term, String desc})> get glossaryItems => isZh
       ? [
           (term: 'REM (快速眼动期)', desc: '大脑活跃与做梦阶段，心率波动较大，主要完成情绪调节与记忆巩固，健康成人通常占 20%–25%。'),

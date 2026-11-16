@@ -157,13 +157,21 @@ class SedentaryProgressBar extends ConsumerWidget {
             ],
             const SizedBox(height: 12),
             Text(
-              isAlerting
-                  ? '⚠️ ${strings.sedentaryAlert} (${status.sedentaryMinutes} ${strings.min})'
-                  : strings.sedentaryAlertDesc,
+              status.pauseReason == SedentaryPauseReason.sleepTracking
+                  ? strings.sedentaryPausedSleepDesc
+                  : (status.pauseReason == SedentaryPauseReason.nocturnalQuietHours
+                      ? strings.sedentaryPausedNightDesc
+                      : (isAlerting
+                          ? '⚠️ ${strings.sedentaryAlert} (${status.sedentaryMinutes} ${strings.min})'
+                          : strings.sedentaryAlertDesc)),
               style: TextStyle(
                 fontSize: 12,
-                color: isAlerting ? AppTheme.recoveryLow : Colors.white54,
-                fontWeight: isAlerting ? FontWeight.w600 : FontWeight.normal,
+                color: status.isPausedForSleep
+                    ? AppTheme.remColor
+                    : (isAlerting ? AppTheme.recoveryLow : Colors.white54),
+                fontWeight: isAlerting && !status.isPausedForSleep
+                    ? FontWeight.w600
+                    : FontWeight.normal,
               ),
             ),
             const SizedBox(height: 6),
@@ -178,6 +186,31 @@ class SedentaryProgressBar extends ConsumerWidget {
   }
 
   Widget _buildStateChip(AppStrings strings) {
+    if (status.isPausedForSleep) {
+      final label = status.pauseReason == SedentaryPauseReason.sleepTracking
+          ? strings.sedentaryPausedSleepChip
+          : strings.sedentaryPausedNightChip;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppTheme.remColor.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.remColor.withOpacity(0.5)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.bedtime, size: 12, color: AppTheme.remColor),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.remColor),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (!status.isDeviceConnected) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

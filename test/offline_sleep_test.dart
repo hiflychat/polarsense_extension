@@ -288,5 +288,36 @@ void main() {
       expect(analyzed.session.deepMinutes, greaterThan(30));
       expect(analyzed.session.remMinutes, greaterThan(30));
     });
+
+    test('SleepEngine.analyzeOfflineSamples keeps Deep Sleep robust across +6 bpm night-to-night RHR drift & RSA', () {
+      // Simulate Night 2 where RHR jumped from 54 -> 60 bpm and Deep has 5-6 bpm RSA breathing swings
+      final hrSamples = <int>[];
+      for (int epoch = 0; epoch < 600; epoch++) {
+        for (int s = 0; s < 30; s++) {
+          if (epoch < 200) {
+            // Deep slow-wave sleep at ~61 bpm with gentle 5-6 bpm respiratory swing (58..64)
+            const wave = [58, 59, 61, 63, 64, 62, 60, 59];
+            hrSamples.add(wave[s % wave.length]);
+          } else if (epoch < 360) {
+            // REM sleep: autonomic variability at 65..73 bpm
+            hrSamples.add(66 + ((s % 6 < 3) ? 7 : 0));
+          } else {
+            // Light sleep steady at 65..67 bpm
+            hrSamples.add(65 + (s % 4 == 0 ? 2 : 0));
+          }
+        }
+      }
+
+      final analyzed = SleepEngine.analyzeOfflineSamples(
+        sessionId: 'hr_shift_rsa_test',
+        startTime: DateTime(2026, 11, 15, 23, 30),
+        exerciseData: PolarExerciseData(interval: 1, samples: hrSamples),
+        priorBaselineRestingHr: 54.0, // Prior night was 6 bpm lower
+      );
+
+      expect(analyzed, isNotNull);
+      expect(analyzed!.session.deepMinutes, greaterThan(60));
+      expect(analyzed.session.remMinutes, greaterThan(40));
+    });
   });
 }
